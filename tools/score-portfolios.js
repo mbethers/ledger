@@ -18,7 +18,7 @@ const pct = (x) => (x == null ? '   n/a' : `${(x * 100).toFixed(1).padStart(6)}%
   if (!list.length) { console.log(only ? `no portfolio ${only}` : 'no portfolios in research/portfolios.json'); return; }
   const today = new Date().toISOString().slice(0, 10);
   const cache = {};
-  const get = async (sym, from) => (cache[sym] ||= await lib.yahooSeries(sym, from).then(s => s.rows).catch(() => null));
+  const get = async (sym, from) => (cache[`${sym}|${from}`] ||= await lib.yahooSeries(sym, from).then(s => s.rows).catch(() => null));
   for (const p of list) {
     const series = {};
     for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) { const r = await get(sym, p.entryDate); if (r) series[sym] = r; }

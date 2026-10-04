@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 // Freeze a researched draft into research/portfolios.json with real closing prices.
 //   node tools/record-portfolio.js research/drafts/2026-10-05-3y.json [--date 2026-10-05]
-// Entry date = the given date (default: the benchmark's latest trading day). Every holding must have
+// Entry date = the given date (default: the benchmark's latest close before today, New York time). Every holding must have
 // a close on that exact date; otherwise nothing is written.
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const lib = require('./research-lib');
 const { execFileSync } = require('child_process');
 
@@ -12,13 +13,17 @@ const { execFileSync } = require('child_process');
   const file = process.argv[2];
   const di = process.argv.indexOf('--date'); const want = di > 0 ? process.argv[di + 1] : null;
   if (!file) { console.log('Usage: node tools/record-portfolio.js <draft.json> [--date YYYY-MM-DD]'); process.exit(1); }
+  if (di > 0 && !(/^\d{4}-\d{2}-\d{2}$/.test(want || '') && !isNaN(new Date(want)))) { console.error(`--date must be a real date as YYYY-MM-DD (got ${want ?? 'nothing'})`); process.exit(1); }
   const p = JSON.parse(fs.readFileSync(file, 'utf8'));
   const list = lib.loadPortfolios();
   if (list.some(x => x.id === p.id)) throw new Error(`id ${p.id} already recorded — portfolios are never overwritten`);
 
   const from = want || new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
   const bench = await lib.yahooSeries('^SP500TR', from);
-  const day = want || bench.rows.at(-1).date;
+  // Default: the latest benchmark close strictly before today in New York, so a still-moving intraday price is never used.
+  const nyToday = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+  const day = want || bench.rows.filter(r => r.date < nyToday).at(-1)?.date;
+  if (!day) throw new Error(`no completed ^SP500TR close before ${nyToday} — nothing written`);
   const b = bench.rows.find(r => r.date === day);
   if (!b) throw new Error(`no ^SP500TR close on ${day} (not a trading day?)`);
 
@@ -37,5 +42,5 @@ const { execFileSync } = require('child_process');
   if (errs.length) throw new Error(`validation failed — nothing written:\n  ${errs.join('\n  ')}`);
   lib.savePortfolios([...list, p]);
   console.log(`Recorded ${p.id}: ${p.positions.length} positions, entry ${day}, S&P TR ${b.close.toFixed(2)}`);
-  execFileSync('node', [require('path').join(__dirname, 'build.js'), '--private'], { stdio: 'inherit' });
+  execFileSync('node', [path.join(__dirname, 'build.js'), '--private'], { stdio: 'inherit' });
 })().catch(e => { console.error(e.message); process.exit(1); });

@@ -16,7 +16,7 @@ Ask for the horizon (1–5 years) if not given. Then:
 1. **Snapshot.** Record today's date, S&P 500 level, 10-yr Treasury, sector year-to-date performance and sentiment (search the web). This becomes `snapshot`.
 2. **Candidates (about 40–60):**
    - *Trends:* identify 6–10 forces that matter over this horizon. 1 yr = near-term triggers (pricing, capacity dates, policy deadlines). 5 yr = structural shifts. For each, map first-, second- and third-order winners and losers. Favor bottlenecks (demand surging into inelastic supply) and businesses the market may be mis-classifying.
-   - *Screen:* `LEDGER_CONTACT=<user email> node tools/screen.js`, then read `research/screen-<date>.json` for cheap, disliked and beaten-down names.
+   - *Screen:* `LEDGER_CONTACT=<user email> node tools/screen.js`, then read `research/screen-<date>.json` for cheap, disliked and beaten-down names. Rows marked stale (fundamentals > 15 months old, common for foreign filers) need manual valuation from current reports.
 3. **Priced-in gate,** for every candidate:
    - Ledger valuation + implied growth (from the screen, or open the ticker in the app).
    - **Consensus,** with evidence (analyst estimates, sentiment, reaction to recent news).

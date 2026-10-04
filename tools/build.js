@@ -60,6 +60,7 @@ if (require.main === module) {
         const { shareDir } = JSON.parse(fs.readFileSync(lib.CONFIG_FILE, 'utf8'));
         if (shareDir) {
           const dir = shareDir.replace(/^~(?=$|\/)/, os.homedir());
+          if (path.resolve(dir) === path.resolve(root)) throw new Error('shareDir must not be the repo root — that would overwrite the public ledger.html with research data');
           if (!fs.existsSync(dir)) throw new Error(`shareDir not found: ${dir} (is Google Drive for desktop running?)`);
           fs.copyFileSync(out, path.join(dir, 'ledger.html'));
           console.log(`Copied to ${path.join(dir, 'ledger.html')}`);

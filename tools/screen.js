@@ -13,6 +13,9 @@ const ROOT = lib.ROOT;
 const UA_SEC = { 'User-Agent': `Ledger screen ${process.env.LEDGER_CONTACT || 'contact@example.com'}` };
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 const today = new Date().toISOString().slice(0, 10);
+// Fundamentals more than 15 months old (common for foreign filers) can't be trusted for valuation.
+const staleCutoff = (() => { const d = new Date(`${today}T00:00:00Z`); d.setUTCMonth(d.getUTCMonth() - 15); return d.toISOString().slice(0, 10); })();
+const isStale = (periodEnd) => typeof periodEnd === 'string' && periodEnd < staleCutoff;
 
 const ctx = { console, Date, Math, JSON, Number, Object, Array, Map, Set, String, RegExp, Promise, setTimeout, clearTimeout, fetch, URLSearchParams, AbortController, TextEncoder };
 vm.createContext(ctx);
@@ -83,7 +86,8 @@ function priceStats(rows) {
           const { inp } = app.applyStockDefaults(fetched, { price: row.price, asOf: today, source: 'Yahoo' }, tsy, t, null);
           const v = app.computeValuation(inp), ig = app.impliedGrowth(inp);
           Object.assign(row, { verdict: v.verdict, passing: v.methodsPassingMOS, pe: v.peTTM, pb: v.pb, impliedGrowth: ig.g, impliedWhy: ig.why,
-            epsCAGR5: inp.epsCAGR5, revCAGR5: inp.revCAGR5, cyclical: !!inp.cyclical, qualityFlag: v.qualityFlag });
+            epsCAGR5: inp.epsCAGR5, revCAGR5: inp.revCAGR5, cyclical: !!inp.cyclical, qualityFlag: v.qualityFlag,
+            periodEnd: inp.periodEnd ?? null, stale: isStale(inp.periodEnd) });
         }
       }
     } catch (e) { row.error = e.message; }
@@ -93,7 +97,7 @@ function priceStats(rows) {
   const file = path.join(ROOT, 'research', `screen-${today}.json`);
   fs.mkdirSync(path.dirname(file), { recursive: true }); fs.writeFileSync(file, JSON.stringify(out, null, 1));
   const pct = (x) => (app.ok(x) ? `${(x * 100).toFixed(1)}%` : 'n/a');
-  const show = (title, rows, f) => { console.log(`\n${title}`); rows.slice(0, 25).forEach(r => console.log(`  ${r.ticker.padEnd(6)} ${f(r)}`)); };
+  const show = (title, rows, f) => { console.log(`\n${title}`); rows.slice(0, 25).forEach(r => console.log(`  ${r.ticker.padEnd(6)} ${f(r)}${r.stale ? ` · STALE data through ${r.periodEnd}` : ''}`)); };
   const stocks = out.filter(r => !r.error && r.kind !== 'bond-fund');
   show('Most methods passing margin of safety:', [...stocks].sort((a, b) => (b.passing - a.passing) || ((a.impliedGrowth ?? 9) - (b.impliedGrowth ?? 9))), r => `${r.passing}/5 pass · implied growth ${pct(r.impliedGrowth)} · P/E ${r.pe?.toFixed?.(1) ?? 'n/a'} · ${r.verdict}`);
   show('Furthest below 52-week high:', [...out.filter(r => !r.error)].sort((a, b) => a.offHigh - b.offHigh), r => `${pct(r.offHigh)} off high · 1y ${pct(r.ret1y)} · ${r.kind}`);
