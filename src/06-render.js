@@ -182,6 +182,26 @@ function cyclicalPanel(inp) {
   </div>`;
 }
 
+// What growth today's price already assumes (reverse DCF), next to what the company has delivered.
+function pricedInPanel(inp) {
+  const r = impliedGrowth(inp);
+  const pct = (x) => `${(x * 100).toFixed(1)}%`;
+  const hist = [['5-yr revenue growth', inp.revCAGR5], ['5-yr EPS growth', inp.epsCAGR5], ['Expected growth (input)', inp.expectedGrowth]];
+  const body = r.g == null
+    ? `<p>${unav(r.why, 'Not computable')}</p>`
+    : `<p style="font-size:15px">Today's price of ${fmt.price(inp.price)} assumes owner earnings grow <b>${pct(r.g)}/yr for 10 years</b>, then ${pct(inp.terminalGrowth)} forever, discounted at ${pct(inp.discountRate)}.</p>
+       <table class="data-table" style="margin-top:10px"><tbody>
+         <tr class="hl"><td>Implied by price</td><td class="num">${pct(r.g)}</td></tr>
+         ${hist.map(([l, v]) => `<tr><td>${l}</td><td class="num">${fmt.pct(v, 1, 'unavailable')}</td></tr>`).join('')}
+       </tbody></table>`;
+  return `<div class="card" style="margin-top:18px">
+    <div class="card-head"><h3>What's priced in</h3><span class="card-note">reverse DCF on owner earnings</span></div>
+    <div class="card-body">${body}
+      <p class="note-box" style="margin-top:10px">If you believe growth will beat the implied rate, the price may be too low. If not, the good news is already in it. For cyclicals and turnarounds, today's owner earnings may be far from normal, which skews this number.</p>
+    </div>
+  </div>`;
+}
+
 /* ---------------- SUMMARY : STOCK ---------------- */
 function renderSummaryStock() {
   const inp = AppState.stock; const { val, gc, bc, lc } = sum(inp); const pf = computePortfolioFit(AppState.portfolio);
@@ -199,6 +219,7 @@ function renderSummaryStock() {
   ${cyclicalPanel(inp)}
   ${earningsQualityPanel(inp)}
   <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val) + (val.qualityFlag ? ' Reported earnings include one-off or non-cash items (see the warning above), so treat this verdict with extra caution.' : ''), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
+  ${pricedInPanel(inp)}
 
   ${priceChartCard()}
   <div class="section-title">Intrinsic value vs. price</div>
