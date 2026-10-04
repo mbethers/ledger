@@ -286,8 +286,9 @@ function computeValuation(inp) {
 
   // Earnings-quality flag (set during data extraction): reported profit leans on one-off, non-operating
   // items or isn't backed by cash. The verdict stands on reported numbers unless the user switches to
-  // core earnings, but it must not look as trustworthy as a clean set of figures.
-  out.qualityFlag = !!inp.earningsQuality && !inp.coreEarningsApplied;
+  // core earnings, but it must not look as trustworthy as a clean set of figures. Normalized (cyclical)
+  // earnings are built from operating margin, so they already leave non-operating items out.
+  out.qualityFlag = !!inp.earningsQuality && !inp.coreEarningsApplied && !inp.normalizedEarningsApplied;
   out.completenessFields = ['price', 'dilutedShares', 'revenue', 'ebit', 'netIncome', 'da', 'epsTTM', 'cash', 'totalCurrentAssets',
     'totalCurrentLiabilities', 'totalDebt', 'totalLiabilities', 'totalEquity', 'operatingCashFlow', 'capex', 'revCAGR5', 'epsCAGR5',
     'avgROE', 'avgROIC', 'moat', 'management', 'simplicity', 'accountingQuality', 'expectedGrowth', 'discountRate', 'aaaYield', 'requiredMOS'];

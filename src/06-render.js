@@ -145,14 +145,39 @@ const sum = (inp) => { const v = computeValuation(inp); return { val: v, gc: com
 // Shown when reported earnings lean on one-off, non-operating items or aren't backed by cash.
 function earningsQualityPanel(inp) {
   const eq = inp.earningsQuality; if (!eq) return '';
-  const canSwitch = ok(eq.coreEPS) && eq.coreEPS > 0;
+  const canSwitch = canUseEarningsBasis(inp, 'core');
+  const p = (html) => `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">${html}</p>`;
   const action = !canSwitch ? '' : inp.coreEarningsApplied
-    ? `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">Valuing on <b>core earnings</b>: EPS ${fmt.price(eq.coreEPS)} (reported ${fmt.price(eq.reportedEPS)}). <button type="button" class="btn sm" data-action="reported-earnings">Switch back to reported earnings</button></p>`
-    : `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">The verdict below uses reported EPS of ${fmt.price(eq.reportedEPS)}. <button type="button" class="btn sm primary" data-action="core-earnings">Value on core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button></p>`;
+    ? p(`Valuing on <b>core earnings</b>: EPS ${fmt.price(eq.coreEPS)} (reported ${fmt.price(eq.reportedEPS)}). <button type="button" class="btn sm" data-action="reported-earnings">Switch back to reported earnings</button>`)
+    : inp.normalizedEarningsApplied
+      ? p(`The verdict below uses normalized earnings (see the cyclical panel), which are built from operating margin and so already exclude non-operating income. <button type="button" class="btn sm" data-action="core-earnings">Use core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button>`)
+      : p(`The verdict below uses reported EPS of ${fmt.price(eq.reportedEPS)}. <button type="button" class="btn sm primary" data-action="core-earnings">Value on core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button>`);
   return `<div class="card gap-panel" style="margin-bottom:18px">
-    <div class="card-head"><h3>Earnings quality warning</h3><span class="card-note">${inp.coreEarningsApplied ? 'core earnings in use' : 'confidence reduced by 15'}</span></div>
+    <div class="card-head"><h3>Earnings quality warning</h3><span class="card-note">${inp.coreEarningsApplied ? 'core earnings in use' : inp.normalizedEarningsApplied ? 'normalized earnings in use' : 'confidence reduced by 15'}</span></div>
     <div class="card-body"><ul class="gap-list">${eq.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>${action}
       <p class="note-box" style="margin-top:10px">Core earnings are an estimate: reported profit minus non-operating income, taxed at the company's effective rate${ok(eq.taxRate) ? ` (${(eq.taxRate * 100).toFixed(0)}%)` : ''}. Check the income statement in the latest 10-K/10-Q to see what the non-operating items are — some (like interest on a large cash pile) do recur.</p>
+    </div>
+  </div>`;
+}
+
+// Shown for cyclicals: the verdict uses mid-cycle (normalized) earnings by default, not the current year's.
+function cyclicalPanel(inp) {
+  const cy = inp.cyclical; if (!cy) return '';
+  const pct = (x) => `${(x * 100).toFixed(0)}%`;
+  const rep = inp.reportedEarnings?.epsTTM;
+  const p = (html) => `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">${html}</p>`;
+  const action = !canUseEarningsBasis(inp, 'normalized')
+    ? p('Normalized EPS couldn\'t be estimated (average margin ≤ 0 or share count missing), so the verdict uses reported earnings.')
+    : inp.normalizedEarningsApplied
+      ? p(`Valuing on <b>normalized earnings</b>: EPS ${fmt.price(cy.normalizedEPS)}${ok(rep) ? ` (reported ${fmt.price(rep)})` : ''}. <button type="button" class="btn sm" data-action="reported-earnings">Use reported earnings instead</button>`)
+      : p(`The verdict below uses ${inp.coreEarningsApplied ? 'core' : 'reported'} EPS of ${fmt.price(inp.epsTTM)}. <button type="button" class="btn sm primary" data-action="normalized-earnings">Value on normalized earnings (EPS ≈ ${fmt.price(cy.normalizedEPS)})</button>`);
+  return `<div class="card gap-panel" style="margin-bottom:18px">
+    <div class="card-head"><h3>Cyclical business</h3><span class="card-note">${inp.normalizedEarningsApplied ? 'normalized earnings in use' : 'option available'}</span></div>
+    <div class="card-body"><ul class="gap-list">
+      <li>${esc(cy.reason[0].toUpperCase() + cy.reason.slice(1))}.</li>
+      <li>Operating margin over ${cy.years} fiscal years (${esc(cy.from.slice(0, 4))}–${esc(cy.to.slice(0, 4))}): low ${pct(cy.minMargin)}, high ${pct(cy.maxMargin)}, average ${pct(cy.avgMargin)}${ok(cy.currentMargin) ? `; now ${pct(cy.currentMargin)}` : ''}.</li>
+    </ul>${action}
+      <p class="note-box" style="margin-top:10px">A cyclical's current-year earnings mislead: near a trough they make the stock look expensive, near a peak cheap. Normalized EPS = average operating margin × current revenue, after ${(cy.taxRate * 100).toFixed(0)}% tax, ÷ diluted shares${ok(cy.capexRatio) ? `; capex is normalized the same way (${(cy.capexRatio * 100).toFixed(0)}% of revenue on average) so owner earnings stay consistent` : ''}. It helps most near a trough; past one, it pulls values <i>down</i>. It assumes margins revert to their ${cy.years}-year average and that current revenue is itself not at an extreme — check both. The growth rate is still seeded from the 5-year EPS trend, which for a cyclical depends on where in the cycle it starts and ends; review it on the Inputs tab.</p>
     </div>
   </div>`;
 }
@@ -168,9 +193,10 @@ function renderSummaryStock() {
   <div class="stat-row">
     <div class="stat-cell"><div class="stat-label">Price</div><div class="stat-value">${fmt.price(inp.price, inp.__why?.price)}</div></div>
     <div class="stat-cell"><div class="stat-label">Market cap</div><div class="stat-value">${fmt.usd(val.marketCapV, { why: w.marketCapV })}</div></div>
-    <div class="stat-cell"><div class="stat-label">P/E (TTM)</div><div class="stat-value">${fmt.x(val.peTTM, 1, w.peTTM)}</div>${ok(inp.epsTTM) ? `<div class="stat-sub">EPS ${fmt.price(inp.epsTTM)} · ${esc(inp.epsBasis || '')}</div>` : ''}</div>
+    <div class="stat-cell"><div class="stat-label">P/E (${inp.normalizedEarningsApplied ? 'normalized' : 'TTM'})</div><div class="stat-value">${fmt.x(val.peTTM, 1, w.peTTM)}</div>${ok(inp.epsTTM) ? `<div class="stat-sub">EPS ${fmt.price(inp.epsTTM)} · ${esc(inp.epsBasis || '')}</div>` : ''}</div>
     <div class="stat-cell"><div class="stat-label">Dividend yield</div><div class="stat-value">${fmt.pct(val.dividendYield, 1, w.dividendYield)}</div></div>
   </div>
+  ${cyclicalPanel(inp)}
   ${earningsQualityPanel(inp)}
   <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val) + (val.qualityFlag ? ' Reported earnings include one-off or non-cash items (see the warning above), so treat this verdict with extra caution.' : ''), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
 

@@ -30,7 +30,7 @@ for (const f of ['02-calculations.js', '03-xbrl.js', '04-fundamentals.js', '05-d
   vm.runInContext(code, ctx, { filename: f });
 }
 const app = vm.runInContext(`({ computeValuation, computeGrahamChecklist, computeBuffettChecklist, computeLynchChecklist, computeFundsETFs,
-  applyStockDefaults, applyFundDefaults, defaultLynch, buildFundamentals, trailingReturn, Fetcher, ETF_REFERENCE, BENCHMARK_TR, ok })`, ctx);
+  applyStockDefaults, setEarningsBasis, applyFundDefaults, defaultLynch, buildFundamentals, trailingReturn, Fetcher, ETF_REFERENCE, BENCHMARK_TR, ok })`, ctx);
 
 // ---- data helpers ----
 async function yahoo(symbol) {
@@ -102,7 +102,7 @@ async function analyzeStock(ticker, asOf, y, tsy, cacheDir, fxFor) {
   const then = rowOnOrBefore(y.rows, asOf);
   const splitAfter = y.splits.filter(s => s.date > asOf).reduce((f, s) => f * s.ratio, 1);
   const quote = { price: then.close * splitAfter, asOf: then.date, source: 'Yahoo Finance (historical close)', name: y.meta.longName };
-  const { inp } = app.applyStockDefaults(fetched, quote, tsy, ticker, null);
+  const { inp, src, detail } = app.applyStockDefaults(fetched, quote, tsy, ticker, null);
   const run = (input) => {
     const v = app.computeValuation(input), gc = app.computeGrahamChecklist(input, v), bc = app.computeBuffettChecklist(input, v);
     const lc = app.computeLynchChecklist({ ...input, ...app.defaultLynch() }, v);
@@ -116,6 +116,13 @@ async function analyzeStock(ticker, asOf, y, tsy, cacheDir, fxFor) {
   if (inp.earningsQuality) {
     out.earningsQuality = inp.earningsQuality.notes;
     if (app.ok(inp.earningsQuality.coreEPS) && inp.earningsQuality.coreEPS > 0) out.core = run({ ...inp, epsTTM: inp.earningsQuality.coreEPS, netIncome: inp.earningsQuality.coreNetIncome, coreEarningsApplied: true });
+  }
+  if (inp.cyclical) {
+    out.cyclical = inp.cyclical.reason;
+    if (app.ok(inp.cyclical.normalizedEPS) && inp.cyclical.normalizedEPS > 0) {
+      const n = { ...inp }; app.setEarningsBasis(n, { ...src }, { ...detail }, 'normalized');
+      out.normalizedEps = r2(n.epsTTM); out.normalized = run(n);
+    }
   }
   // Revenue/EPS trajectory known at the time (last 4 fiscal years), to see the trend the model saw.
   out.history = (inp.history || []).filter(h => !h.ttm).slice(0, 4).map(h => `${h.end}: rev ${app.ok(h.revenue) ? (h.revenue / 1e9).toFixed(1) + 'B' : 'n/r'}, EPS ${app.ok(h.eps) ? h.eps.toFixed(2) : 'n/r'}`);
@@ -156,7 +163,7 @@ function analyzeFund(ticker, asOf, y, tsy, bench) {
       results.tickers[t] = { type: isFund ? 'fund' : 'stock', ...analysis, ...outcome };
       const a = results.tickers[t];
       const v = a.reported?.verdict || a.verdict;
-      console.log(`${t.padEnd(6)} ${String(v).padEnd(48)} P/E ${String(a.reported?.pe ?? '').padStart(6)} | then $${a.priceThen} → now $${a.priceNow} | total ${(a.totalReturn * 100).toFixed(1)}% (vs S&P ${(a.vsSP500 * 100 >= 0 ? '+' : '')}${(a.vsSP500 * 100).toFixed(1)} pts)${a.core ? ` | core: ${a.core.verdict}` : ''}`);
+      console.log(`${t.padEnd(6)} ${String(v).padEnd(48)} P/E ${String(a.reported?.pe ?? '').padStart(6)} | then $${a.priceThen} → now $${a.priceNow} | total ${(a.totalReturn * 100).toFixed(1)}% (vs S&P ${(a.vsSP500 * 100 >= 0 ? '+' : '')}${(a.vsSP500 * 100).toFixed(1)} pts)${a.core ? ` | core: ${a.core.verdict}` : ''}${a.normalized ? ` | normalized (EPS ${a.normalizedEps}): ${a.normalized.verdict}` : ''}`);
     } catch (e) { results.tickers[t] = { error: e.message }; console.log(`${t}: ERROR ${e.message}`); }
   }
   const out = path.join(ROOT, 'tools', `backtest-${asOf}.json`);

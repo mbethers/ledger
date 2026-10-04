@@ -332,9 +332,10 @@ function buildFundamentals(facts, todayISO) {
     }
     v.history = hist;
 
-    // ---- cyclicality: value cyclicals on mid-cycle (normalized) earnings, not the current year ----
-    // Backtest (Oct 2025 → Oct 2026): memory/storage makers valued on trough earnings were rated
-    // "avoid/overvalued" and then rose 200–1,200%. Lynch: a cyclical's current-year P/E misleads.
+    // ---- cyclicality: offer valuing cyclicals on mid-cycle (normalized) earnings ----
+    // Opt-in from the Summary tab. Made the default once, then reverted: in the Oct 2025 backtest every
+    // flagged stock was past its trough, so normalizing lowered values that were already too low.
+    // Lynch: a cyclical's current-year P/E misleads — high at the trough, low at the peak.
     // Rule, chosen from 10-yr operating margins of known cyclicals vs. steady businesses:
     //   cyclical if (≥5 fiscal years) operating margin fell ≥10 points AND by at least half from an
     //   earlier peak, or turned negative after a profitable year.
@@ -358,9 +359,13 @@ function buildFundamentals(facts, todayISO) {
         if (v.revenue > 0 && avg > 0 && shares > 0) {
           cy.normalizedNetIncome = avg * v.revenue * (1 - cy.taxRate);
           cy.normalizedEPS = cy.normalizedNetIncome / shares;
+          // Owner earnings subtract capex, which also swings with the cycle (heaviest near a peak). Pair
+          // mid-cycle profit with mid-cycle capex intensity, or a peak-year capex bill wipes it out.
+          const cx = yrs.filter(h => h.capex != null);
+          if (cx.length >= 3) { cy.capexRatio = cx.reduce((a, h) => a + h.capex / h.revenue, 0) / cx.length; cy.normalizedCapex = cy.capexRatio * v.revenue; }
         }
         v.cyclical = cy;
-        warnings.push(`Cyclical business: ${reason}. Over ${m.length} years margins ranged ${(cy.minMargin * 100).toFixed(0)}% to ${(cy.maxMargin * 100).toFixed(0)}% (average ${(avg * 100).toFixed(0)}%)${cy.normalizedEPS != null ? `. Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about ${cur === 'USD' ? '$' : ''}${cy.normalizedEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur}` : ''}.`);
+        warnings.push(`Cyclical business: ${reason}. Over ${m.length} years margins ranged ${(cy.minMargin * 100).toFixed(0)}% to ${(cy.maxMargin * 100).toFixed(0)}% (average ${(avg * 100).toFixed(0)}%)${cy.normalizedEPS != null ? `. Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about ${cur === 'USD' ? '$' : ''}${cy.normalizedEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur} (option on the Summary tab)` : ''}.`);
       }
     }
   }

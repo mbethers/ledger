@@ -652,8 +652,9 @@ function computeValuation(inp) {
 
   // Earnings-quality flag (set during data extraction): reported profit leans on one-off, non-operating
   // items or isn't backed by cash. The verdict stands on reported numbers unless the user switches to
-  // core earnings, but it must not look as trustworthy as a clean set of figures.
-  out.qualityFlag = !!inp.earningsQuality && !inp.coreEarningsApplied;
+  // core earnings, but it must not look as trustworthy as a clean set of figures. Normalized (cyclical)
+  // earnings are built from operating margin, so they already leave non-operating items out.
+  out.qualityFlag = !!inp.earningsQuality && !inp.coreEarningsApplied && !inp.normalizedEarningsApplied;
   out.completenessFields = ['price', 'dilutedShares', 'revenue', 'ebit', 'netIncome', 'da', 'epsTTM', 'cash', 'totalCurrentAssets',
     'totalCurrentLiabilities', 'totalDebt', 'totalLiabilities', 'totalEquity', 'operatingCashFlow', 'capex', 'revCAGR5', 'epsCAGR5',
     'avgROE', 'avgROIC', 'moat', 'management', 'simplicity', 'accountingQuality', 'expectedGrowth', 'discountRate', 'aaaYield', 'requiredMOS'];
@@ -1336,9 +1337,10 @@ function buildFundamentals(facts, todayISO) {
     }
     v.history = hist;
 
-    // ---- cyclicality: value cyclicals on mid-cycle (normalized) earnings, not the current year ----
-    // Backtest (Oct 2025 → Oct 2026): memory/storage makers valued on trough earnings were rated
-    // "avoid/overvalued" and then rose 200–1,200%. Lynch: a cyclical's current-year P/E misleads.
+    // ---- cyclicality: offer valuing cyclicals on mid-cycle (normalized) earnings ----
+    // Opt-in from the Summary tab. Made the default once, then reverted: in the Oct 2025 backtest every
+    // flagged stock was past its trough, so normalizing lowered values that were already too low.
+    // Lynch: a cyclical's current-year P/E misleads — high at the trough, low at the peak.
     // Rule, chosen from 10-yr operating margins of known cyclicals vs. steady businesses:
     //   cyclical if (≥5 fiscal years) operating margin fell ≥10 points AND by at least half from an
     //   earlier peak, or turned negative after a profitable year.
@@ -1362,9 +1364,13 @@ function buildFundamentals(facts, todayISO) {
         if (v.revenue > 0 && avg > 0 && shares > 0) {
           cy.normalizedNetIncome = avg * v.revenue * (1 - cy.taxRate);
           cy.normalizedEPS = cy.normalizedNetIncome / shares;
+          // Owner earnings subtract capex, which also swings with the cycle (heaviest near a peak). Pair
+          // mid-cycle profit with mid-cycle capex intensity, or a peak-year capex bill wipes it out.
+          const cx = yrs.filter(h => h.capex != null);
+          if (cx.length >= 3) { cy.capexRatio = cx.reduce((a, h) => a + h.capex / h.revenue, 0) / cx.length; cy.normalizedCapex = cy.capexRatio * v.revenue; }
         }
         v.cyclical = cy;
-        warnings.push(`Cyclical business: ${reason}. Over ${m.length} years margins ranged ${(cy.minMargin * 100).toFixed(0)}% to ${(cy.maxMargin * 100).toFixed(0)}% (average ${(avg * 100).toFixed(0)}%)${cy.normalizedEPS != null ? `. Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about ${cur === 'USD' ? '$' : ''}${cy.normalizedEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur}` : ''}.`);
+        warnings.push(`Cyclical business: ${reason}. Over ${m.length} years margins ranged ${(cy.minMargin * 100).toFixed(0)}% to ${(cy.maxMargin * 100).toFixed(0)}% (average ${(avg * 100).toFixed(0)}%)${cy.normalizedEPS != null ? `. Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about ${cur === 'USD' ? '$' : ''}${cy.normalizedEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur} (option on the Summary tab)` : ''}.`);
       }
     }
   }
@@ -1525,7 +1531,7 @@ const Fetcher = {
       catch (e) {
         const reason = `reported in ${cur}; currency conversion failed (${e.message})`;
         for (const f of [...FOREIGN_MONEY_FIELDS, 'epsTTM']) if (v[f] != null) { v[f] = null; r.why[f] = reason; delete r.source[f]; }
-        v.history = []; v.earningsQuality = null;
+        v.history = []; v.earningsQuality = null; v.cyclical = null;
         r.warnings.push(`Couldn't convert ${cur} figures to US dollars (${e.message}) — money and per-share fields are marked unavailable rather than shown in the wrong currency.`);
         return r;
       }
@@ -1544,6 +1550,8 @@ const Fetcher = {
       for (const k of ['nonOperating', 'coreNetIncome', 'reportedNetIncome']) if (ok(eq[k])) eq[k] *= fx.rate;
       for (const k of ['coreEPS', 'reportedEPS']) if (ok(eq[k])) eq[k] *= fx.rate * ratio;
     }
+    const cy = v.cyclical;
+    if (cy) { for (const k of ['normalizedNetIncome', 'normalizedCapex']) if (ok(cy[k])) cy[k] *= fx.rate; if (ok(cy.normalizedEPS)) cy.normalizedEPS *= fx.rate * ratio; }
     v.convertedFrom = cur !== 'USD' ? { currency: cur, rate: fx.rate, asOf: fx.asOf } : null; v.adrRatio = ratio;
     r.warnings.push(`Converted from ${cur} to US dollars at ${fx.rate.toPrecision(4)} USD per ${cur}${fx.asOf ? ` (${fx.asOf})` : ''}${ratio !== 1 ? `; per-share figures are per ADR (1 ADR = ${ratio} ordinary shares)` : ''}. Historical figures use today's rate, so growth rates and margins are unaffected but past dollar amounts are approximate.`);
     return r;
@@ -1684,6 +1692,49 @@ const STOCK_FETCHED_FIELDS = ['companyName', 'sector', 'revenue', 'grossProfit',
 
 // Shown for reference but not used by any calculation, so a gap here isn't flagged as a data problem.
 const INFO_ONLY_FIELDS = new Set(['sbc', 'companyName']);
+
+// Which earnings the valuation runs on: 'reported', 'core' (minus non-operating income) or
+// 'normalized' (a cyclical's mid-cycle earnings). The reported figures are stashed on first use so
+// every switch is reversible.
+function canUseEarningsBasis(inp, basis) {
+  if (basis === 'core') return ok(inp.earningsQuality?.coreEPS) && inp.earningsQuality.coreEPS > 0;
+  if (basis === 'normalized') return ok(inp.cyclical?.normalizedEPS) && inp.cyclical.normalizedEPS > 0;
+  return true;
+}
+function setEarningsBasis(inp, src, detail, basis) {
+  const eq = inp.earningsQuality, cy = inp.cyclical;
+  if (!inp.reportedEarnings) {
+    // Profiles saved before this existed may already hold core figures; recover reported ones from eq.
+    const fromEq = inp.coreEarningsApplied && eq;
+    inp.reportedEarnings = { epsTTM: fromEq ? eq.reportedEPS : inp.epsTTM, netIncome: fromEq ? eq.reportedNetIncome : inp.netIncome, capex: inp.capex, epsBasis: inp.epsBasis,
+      src: { epsTTM: fromEq ? 'fetched' : src.epsTTM, netIncome: fromEq ? 'fetched' : src.netIncome, capex: src.capex },
+      detail: { epsTTM: fromEq ? 'Reported diluted EPS (SEC EDGAR)' : detail.epsTTM, netIncome: fromEq ? 'Reported net income (SEC EDGAR)' : detail.netIncome, capex: detail.capex } };
+  }
+  const r = inp.reportedEarnings;
+  if (!canUseEarningsBasis(inp, basis)) basis = 'reported';
+  inp.coreEarningsApplied = basis === 'core'; inp.normalizedEarningsApplied = basis === 'normalized';
+  // Capex is only normalized alongside normalized earnings; every other basis uses the reported figure.
+  if (r.capex !== undefined) { inp.capex = r.capex; src.capex = r.src.capex; detail.capex = r.detail.capex; }
+  if (basis === 'core') {
+    inp.epsTTM = eq.coreEPS; inp.netIncome = eq.coreNetIncome; inp.epsBasis = r.epsBasis;
+    src.epsTTM = src.netIncome = 'manual';
+    detail.epsTTM = `Core earnings estimate (reported ${fmt.plain(r.epsTTM)} minus non-operating income after tax)`;
+    detail.netIncome = 'Core earnings estimate (reported net income minus non-operating income after tax)';
+  } else if (basis === 'normalized') {
+    const m = `${(cy.avgMargin * 100).toFixed(1)}%`;
+    inp.epsTTM = cy.normalizedEPS; inp.netIncome = cy.normalizedNetIncome; inp.epsBasis = `normalized (${cy.years}-yr avg margin)`;
+    src.epsTTM = src.netIncome = 'default';
+    detail.epsTTM = `Normalized for a cyclical: ${m} average operating margin (${cy.years} fiscal years) × current revenue, after ${(cy.taxRate * 100).toFixed(0)}% tax, ÷ diluted shares. Reported: ${fmt.plain(r.epsTTM)}`;
+    detail.netIncome = `Normalized for a cyclical: ${m} average operating margin × current revenue, after ${(cy.taxRate * 100).toFixed(0)}% tax`;
+    if (ok(cy.normalizedCapex)) {
+      inp.capex = cy.normalizedCapex; src.capex = 'default';
+      detail.capex = `Normalized for a cyclical: ${(cy.capexRatio * 100).toFixed(1)}% average capex ÷ revenue × current revenue, to match normalized earnings. Reported: ${fmt.usd(r.capex)}`;
+    }
+  } else {
+    inp.epsTTM = r.epsTTM; inp.netIncome = r.netIncome; inp.epsBasis = r.epsBasis;
+    src.epsTTM = r.src.epsTTM; src.netIncome = r.src.netIncome; detail.epsTTM = r.detail.epsTTM; detail.netIncome = r.detail.netIncome;
+  }
+}
 
 function applyStockDefaults(fetched, quote, tsy, ticker, ov) {
   const inp = { ...fetched.values }; const src = {}; const detail = { ...fetched.source }; const why = { ...fetched.why };
@@ -1905,18 +1956,19 @@ async function analyzeTicker(rawTicker, requestedType) {
     if (prev && prev.assetType === type && prev[type]) {
       const prevSrc = prev.fieldSource?.[type] || {};
       let kept = 0;
-      const hadCore = !!prev[type].coreEarningsApplied; // core-earnings figures are re-derived from fresh data below, not kept
+      // An earnings basis the user picked (core / normalized / reported) is re-derived from fresh data below, not kept.
+      // Older profiles only recorded coreEarningsApplied.
+      const choice = prev[type].earningsBasisChoice || (prev[type].coreEarningsApplied ? 'core' : null);
+      const basisFigures = choice || prev[type].normalizedEarningsApplied;
       for (const [f, s] of Object.entries(prevSrc)) {
-        if (hadCore && (f === 'epsTTM' || f === 'netIncome')) continue;
+        if (basisFigures && (f === 'epsTTM' || f === 'netIncome' || f === 'capex')) continue;
         if (s === 'manual' && prev[type][f] != null && f in built.inp) { built.inp[f] = prev[type][f]; built.src[f] = 'manual'; delete built.inp.__why[f]; kept++; }
       }
       if (kept) Fetcher.note('info', `Kept ${kept} value${kept > 1 ? 's' : ''} you entered by hand last time.`);
-      const eqNow = built.inp.earningsQuality;
-      if (hadCore && eqNow && ok(eqNow.coreEPS) && eqNow.coreEPS > 0) {
-        built.inp.epsTTM = eqNow.coreEPS; built.inp.netIncome = eqNow.coreNetIncome; built.inp.coreEarningsApplied = true;
-        built.src.epsTTM = built.src.netIncome = 'manual';
-        built.detail.epsTTM = `Core earnings estimate (reported ${fmt.plain(eqNow.reportedEPS)} minus non-operating income after tax)`;
-        Fetcher.note('info', 'Still valuing on core earnings, as you chose last time (recalculated from the latest filings).');
+      if (choice && canUseEarningsBasis(built.inp, choice)) {
+        setEarningsBasis(built.inp, built.src, built.detail, choice); built.inp.earningsBasisChoice = choice;
+        const label = { core: 'core earnings', normalized: 'normalized (mid-cycle) earnings', reported: 'reported earnings' }[choice];
+        Fetcher.note('info', `Still valuing on ${label}, as you chose last time${choice === 'reported' ? '' : ' (recalculated from the latest filings)'}.`);
       }
     }
 
@@ -2134,14 +2186,39 @@ const sum = (inp) => { const v = computeValuation(inp); return { val: v, gc: com
 // Shown when reported earnings lean on one-off, non-operating items or aren't backed by cash.
 function earningsQualityPanel(inp) {
   const eq = inp.earningsQuality; if (!eq) return '';
-  const canSwitch = ok(eq.coreEPS) && eq.coreEPS > 0;
+  const canSwitch = canUseEarningsBasis(inp, 'core');
+  const p = (html) => `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">${html}</p>`;
   const action = !canSwitch ? '' : inp.coreEarningsApplied
-    ? `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">Valuing on <b>core earnings</b>: EPS ${fmt.price(eq.coreEPS)} (reported ${fmt.price(eq.reportedEPS)}). <button type="button" class="btn sm" data-action="reported-earnings">Switch back to reported earnings</button></p>`
-    : `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">The verdict below uses reported EPS of ${fmt.price(eq.reportedEPS)}. <button type="button" class="btn sm primary" data-action="core-earnings">Value on core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button></p>`;
+    ? p(`Valuing on <b>core earnings</b>: EPS ${fmt.price(eq.coreEPS)} (reported ${fmt.price(eq.reportedEPS)}). <button type="button" class="btn sm" data-action="reported-earnings">Switch back to reported earnings</button>`)
+    : inp.normalizedEarningsApplied
+      ? p(`The verdict below uses normalized earnings (see the cyclical panel), which are built from operating margin and so already exclude non-operating income. <button type="button" class="btn sm" data-action="core-earnings">Use core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button>`)
+      : p(`The verdict below uses reported EPS of ${fmt.price(eq.reportedEPS)}. <button type="button" class="btn sm primary" data-action="core-earnings">Value on core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button>`);
   return `<div class="card gap-panel" style="margin-bottom:18px">
-    <div class="card-head"><h3>Earnings quality warning</h3><span class="card-note">${inp.coreEarningsApplied ? 'core earnings in use' : 'confidence reduced by 15'}</span></div>
+    <div class="card-head"><h3>Earnings quality warning</h3><span class="card-note">${inp.coreEarningsApplied ? 'core earnings in use' : inp.normalizedEarningsApplied ? 'normalized earnings in use' : 'confidence reduced by 15'}</span></div>
     <div class="card-body"><ul class="gap-list">${eq.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>${action}
       <p class="note-box" style="margin-top:10px">Core earnings are an estimate: reported profit minus non-operating income, taxed at the company's effective rate${ok(eq.taxRate) ? ` (${(eq.taxRate * 100).toFixed(0)}%)` : ''}. Check the income statement in the latest 10-K/10-Q to see what the non-operating items are — some (like interest on a large cash pile) do recur.</p>
+    </div>
+  </div>`;
+}
+
+// Shown for cyclicals: the verdict uses mid-cycle (normalized) earnings by default, not the current year's.
+function cyclicalPanel(inp) {
+  const cy = inp.cyclical; if (!cy) return '';
+  const pct = (x) => `${(x * 100).toFixed(0)}%`;
+  const rep = inp.reportedEarnings?.epsTTM;
+  const p = (html) => `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">${html}</p>`;
+  const action = !canUseEarningsBasis(inp, 'normalized')
+    ? p('Normalized EPS couldn\'t be estimated (average margin ≤ 0 or share count missing), so the verdict uses reported earnings.')
+    : inp.normalizedEarningsApplied
+      ? p(`Valuing on <b>normalized earnings</b>: EPS ${fmt.price(cy.normalizedEPS)}${ok(rep) ? ` (reported ${fmt.price(rep)})` : ''}. <button type="button" class="btn sm" data-action="reported-earnings">Use reported earnings instead</button>`)
+      : p(`The verdict below uses ${inp.coreEarningsApplied ? 'core' : 'reported'} EPS of ${fmt.price(inp.epsTTM)}. <button type="button" class="btn sm primary" data-action="normalized-earnings">Value on normalized earnings (EPS ≈ ${fmt.price(cy.normalizedEPS)})</button>`);
+  return `<div class="card gap-panel" style="margin-bottom:18px">
+    <div class="card-head"><h3>Cyclical business</h3><span class="card-note">${inp.normalizedEarningsApplied ? 'normalized earnings in use' : 'option available'}</span></div>
+    <div class="card-body"><ul class="gap-list">
+      <li>${esc(cy.reason[0].toUpperCase() + cy.reason.slice(1))}.</li>
+      <li>Operating margin over ${cy.years} fiscal years (${esc(cy.from.slice(0, 4))}–${esc(cy.to.slice(0, 4))}): low ${pct(cy.minMargin)}, high ${pct(cy.maxMargin)}, average ${pct(cy.avgMargin)}${ok(cy.currentMargin) ? `; now ${pct(cy.currentMargin)}` : ''}.</li>
+    </ul>${action}
+      <p class="note-box" style="margin-top:10px">A cyclical's current-year earnings mislead: near a trough they make the stock look expensive, near a peak cheap. Normalized EPS = average operating margin × current revenue, after ${(cy.taxRate * 100).toFixed(0)}% tax, ÷ diluted shares${ok(cy.capexRatio) ? `; capex is normalized the same way (${(cy.capexRatio * 100).toFixed(0)}% of revenue on average) so owner earnings stay consistent` : ''}. It helps most near a trough; past one, it pulls values <i>down</i>. It assumes margins revert to their ${cy.years}-year average and that current revenue is itself not at an extreme — check both. The growth rate is still seeded from the 5-year EPS trend, which for a cyclical depends on where in the cycle it starts and ends; review it on the Inputs tab.</p>
     </div>
   </div>`;
 }
@@ -2157,9 +2234,10 @@ function renderSummaryStock() {
   <div class="stat-row">
     <div class="stat-cell"><div class="stat-label">Price</div><div class="stat-value">${fmt.price(inp.price, inp.__why?.price)}</div></div>
     <div class="stat-cell"><div class="stat-label">Market cap</div><div class="stat-value">${fmt.usd(val.marketCapV, { why: w.marketCapV })}</div></div>
-    <div class="stat-cell"><div class="stat-label">P/E (TTM)</div><div class="stat-value">${fmt.x(val.peTTM, 1, w.peTTM)}</div>${ok(inp.epsTTM) ? `<div class="stat-sub">EPS ${fmt.price(inp.epsTTM)} · ${esc(inp.epsBasis || '')}</div>` : ''}</div>
+    <div class="stat-cell"><div class="stat-label">P/E (${inp.normalizedEarningsApplied ? 'normalized' : 'TTM'})</div><div class="stat-value">${fmt.x(val.peTTM, 1, w.peTTM)}</div>${ok(inp.epsTTM) ? `<div class="stat-sub">EPS ${fmt.price(inp.epsTTM)} · ${esc(inp.epsBasis || '')}</div>` : ''}</div>
     <div class="stat-cell"><div class="stat-label">Dividend yield</div><div class="stat-value">${fmt.pct(val.dividendYield, 1, w.dividendYield)}</div></div>
   </div>
+  ${cyclicalPanel(inp)}
   ${earningsQualityPanel(inp)}
   <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val) + (val.qualityFlag ? ' Reported earnings include one-off or non-cash items (see the warning above), so treat this verdict with extra caution.' : ''), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
 
@@ -2776,21 +2854,13 @@ document.querySelectorAll('[data-example]').forEach(btn => btn.addEventListener(
 document.getElementById('tabContent').addEventListener('click', (e) => {
   const b = e.target.closest('.range-btn');
   if (b) { AppState.chartRange = b.dataset.range; renderApp(); return; }
-  // Switch the valuation between reported and core (ex non-operating) earnings.
-  const a = e.target.closest('[data-action="core-earnings"], [data-action="reported-earnings"]');
-  const s = AppState.stock, eq = s?.earningsQuality;
-  if (!a || !eq) return;
-  const src = AppState.fieldSource.stock, det = AppState.sourceDetail.stock;
-  if (a.dataset.action === 'core-earnings') {
-    s.epsTTM = eq.coreEPS; s.netIncome = eq.coreNetIncome; s.coreEarningsApplied = true;
-    src.epsTTM = src.netIncome = 'manual';
-    det.epsTTM = `Core earnings estimate (reported ${fmt.plain(eq.reportedEPS)} minus non-operating income after tax)`;
-    det.netIncome = 'Core earnings estimate (reported net income minus non-operating income after tax)';
-  } else {
-    s.epsTTM = eq.reportedEPS; s.netIncome = eq.reportedNetIncome; s.coreEarningsApplied = false;
-    src.epsTTM = src.netIncome = 'fetched';
-    det.epsTTM = 'Reported diluted EPS (SEC EDGAR)'; det.netIncome = 'Reported net income (SEC EDGAR)';
-  }
+  // Switch the valuation between reported, core (ex non-operating) and normalized (cyclical) earnings.
+  const a = e.target.closest('[data-action="core-earnings"], [data-action="reported-earnings"], [data-action="normalized-earnings"]');
+  const s = AppState.stock;
+  if (!a || !s) return;
+  const basis = a.dataset.action.replace('-earnings', '');
+  setEarningsBasis(s, AppState.fieldSource.stock, AppState.sourceDetail.stock, basis);
+  s.earningsBasisChoice = basis;
   recompute();
 });
 let resizeTimer = null;
@@ -2837,6 +2907,8 @@ document.getElementById('tabContent').addEventListener('change', (e) => {
     if (field === 'yearsPositiveEarnings') delete AppState[group].yearsPositiveEarningsOf;
     if (field === 'epsCAGR5') delete AppState[group].epsCAGR5Neg;
     if (field === 'revCAGR5') delete AppState[group].revCAGR5Neg;
+    // Typing EPS or net income by hand overrides any core/normalized basis.
+    if (field === 'epsTTM' || field === 'netIncome') { const g = AppState[group]; g.coreEarningsApplied = g.normalizedEarningsApplied = false; delete g.earningsBasisChoice; }
   }
   recompute();
 });

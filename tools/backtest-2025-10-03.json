@@ -12,7 +12,7 @@
       "eps": 3.51,
       "epsBasis": "TTM to 2025-07-27",
       "growth": 0.12,
-      "epsCAGR5": 0.927,
+      "epsCAGR5": 0.918,
       "revCAGR5": 0.642,
       "roe": 0.486,
       "fundamentalsThrough": "2025-07-27",
@@ -35,12 +35,35 @@
         "buffett": "B — acceptable",
         "lynch": "OVERVALUED — PEG>1.5"
       },
-      "warnings": [],
+      "warnings": [
+        "Cyclical business: operating margin fell from 37% to 16% (FY 2023-01-29). Over 10 years margins ranged 15% to 62% (average 33%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $1.91 (option on the Summary tab)."
+      ],
+      "cyclical": "operating margin fell from 37% to 16% (FY 2023-01-29)",
+      "normalizedEps": 1.91,
+      "normalized": {
+        "verdict": "OVERVALUED — price exceeds intrinsic value",
+        "confidence": 67,
+        "passing": 0,
+        "evaluated": 5,
+        "pe": 98.3,
+        "pb": 45.5,
+        "peg": 8.19,
+        "iv": {
+          "grahamNumber": 13.3,
+          "grahamRevised": 56.84,
+          "netNet": 1.69,
+          "lynch": 22.9,
+          "dcf": 50.88
+        },
+        "graham": "4/8 pass | 4/7 pass",
+        "buffett": "B — acceptable",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2025-01-26: rev 130.5B, EPS 2.94",
         "2024-01-28: rev 60.9B, EPS 1.19",
         "2023-01-29: rev 27.0B, EPS 0.17",
-        "2022-01-30: rev 26.9B, EPS 0.38"
+        "2022-01-30: rev 26.9B, EPS 0.39"
       ],
       "priceNow": 233.95,
       "totalReturn": 0.2499,
@@ -116,7 +139,30 @@
         "buffett": "D — avoid",
         "lynch": "INCOMPLETE — PEG unavailable"
       },
-      "warnings": [],
+      "warnings": [
+        "Cyclical business: operating margin fell from 33% to 4% (FY 2022-12-31). Over 10 years margins ranged -22% to 33% (average 18%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $1.70 (option on the Summary tab)."
+      ],
+      "cyclical": "operating margin fell from 33% to 4% (FY 2022-12-31)",
+      "normalizedEps": 1.7,
+      "normalized": {
+        "verdict": "OVERVALUED — price exceeds intrinsic value",
+        "confidence": 49,
+        "passing": 0,
+        "evaluated": 4,
+        "pe": 21.7,
+        "pb": 1.6,
+        "peg": 4.33,
+        "iv": {
+          "grahamNumber": 29.25,
+          "grahamRevised": 28.83,
+          "netNet": null,
+          "lynch": 8.5,
+          "dcf": 7.92
+        },
+        "graham": "1/8 pass · 2 unverifiable | 4/7 pass",
+        "buffett": "D — avoid",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2024-12-28: rev 53.1B, EPS -4.38",
         "2023-12-30: rev 54.2B, EPS 0.40",
@@ -157,7 +203,30 @@
         "buffett": "C — weak",
         "lynch": "OVERVALUED — PEG>1.5"
       },
-      "warnings": [],
+      "warnings": [
+        "Cyclical business: operating margin fell from 49% to 14% (FY 2020-09-03). Over 10 years margins ranged -37% to 49% (average 17%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $5.10 (option on the Summary tab)."
+      ],
+      "cyclical": "operating margin fell from 49% to 14% (FY 2020-09-03)",
+      "normalizedEps": 5.1,
+      "normalized": {
+        "verdict": "AVOID — negative owner earnings",
+        "confidence": 73,
+        "passing": 0,
+        "evaluated": 4,
+        "pe": 36.8,
+        "pb": 3.9,
+        "peg": 3.07,
+        "iv": {
+          "grahamNumber": 74.4,
+          "grahamRevised": 151.89,
+          "netNet": 0.12,
+          "lynch": 61.18,
+          "dcf": null
+        },
+        "graham": "3/8 pass | 4/7 pass",
+        "buffett": "C — weak",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2025-08-28: rev 37.4B, EPS 7.59",
         "2024-08-29: rev 25.1B, EPS 0.70",
@@ -198,7 +267,30 @@
         "buffett": "C — weak",
         "lynch": "OVERVALUED — PEG>1.5"
       },
-      "warnings": [],
+      "warnings": [
+        "Cyclical business: operating margin fell from 17% to -5% (FY 2023-06-30). Over 10 years margins ranged -5% to 21% (average 11%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $4.11 (option on the Summary tab)."
+      ],
+      "cyclical": "operating margin fell from 17% to -5% (FY 2023-06-30)",
+      "normalizedEps": 4.11,
+      "normalized": {
+        "verdict": "OVERVALUED — price exceeds intrinsic value",
+        "confidence": 75,
+        "passing": 0,
+        "evaluated": 3,
+        "pe": 61.6,
+        "pb": null,
+        "peg": 5.13,
+        "iv": {
+          "grahamNumber": null,
+          "grahamRevised": 122.35,
+          "netNet": null,
+          "lynch": 49.28,
+          "dcf": 77.62
+        },
+        "graham": "1/8 pass | 2/7 pass",
+        "buffett": "C — weak",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2025-06-27: rev 9.1B, EPS 6.77",
         "2024-06-28: rev 6.6B, EPS 1.58",
@@ -239,7 +331,30 @@
         "buffett": "D — avoid",
         "lynch": "OVERVALUED — PEG>1.5"
       },
-      "warnings": [],
+      "warnings": [
+        "Cyclical business: operating margin fell from 18% to 1% (FY 2019-06-28). Over 10 years margins ranged -9% to 25% (average 6%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $1.47 (option on the Summary tab)."
+      ],
+      "cyclical": "operating margin fell from 18% to 1% (FY 2019-06-28)",
+      "normalizedEps": 1.47,
+      "normalized": {
+        "verdict": "OVERVALUED — price exceeds intrinsic value",
+        "confidence": 56,
+        "passing": 0,
+        "evaluated": 4,
+        "pe": 89.5,
+        "pb": 8.6,
+        "peg": 17.9,
+        "iv": {
+          "grahamNumber": 22.48,
+          "grahamRevised": 24.88,
+          "netNet": null,
+          "lynch": 7.34,
+          "dcf": 13.03
+        },
+        "graham": "1/8 pass | 3/7 pass",
+        "buffett": "D — avoid",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2025-06-27: rev 9.5B, EPS 5.12",
         "2024-06-28: rev 6.3B, EPS -2.61",
@@ -324,7 +439,30 @@
         "buffett": "B — acceptable",
         "lynch": "OVERVALUED — PEG>1.5"
       },
-      "warnings": [],
+      "warnings": [
+        "Cyclical business: operating margin fell from 22% to 5% (FY 2022-12-31). Over 10 years margins ranged -12% to 22% (average 5%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $0.79 (option on the Summary tab)."
+      ],
+      "cyclical": "operating margin fell from 22% to 5% (FY 2022-12-31)",
+      "normalizedEps": 0.79,
+      "normalized": {
+        "verdict": "OVERVALUED — price exceeds intrinsic value",
+        "confidence": 81,
+        "passing": 0,
+        "evaluated": 5,
+        "pe": 207.6,
+        "pb": 4.5,
+        "peg": 17.3,
+        "iv": {
+          "grahamNumber": 25.62,
+          "grahamRevised": 23.63,
+          "netNet": 3.85,
+          "lynch": 9.52,
+          "dcf": 19.41
+        },
+        "graham": "2/8 pass · 1 unverifiable | 3/7 pass",
+        "buffett": "B — acceptable",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2024-12-28: rev 25.8B, EPS 1.00",
         "2023-12-30: rev 22.7B, EPS 0.53",
@@ -366,8 +504,30 @@
         "lynch": "OVERVALUED — PEG>1.5"
       },
       "warnings": [
-        "Detected a 1-for-8.05 reverse split (between filings of 2021-07-27 and 2021-10-26); older per-share figures were rescaled to today's share basis."
+        "Detected a 1-for-8 reverse split (between filings of 2021-07-27 and 2021-10-26); older per-share figures were rescaled to today's share basis.",
+        "Cyclical business: operating margin fell from 7% to -11% (FY 2017-12-31). Over 10 years margins ranged -22% to 30% (average 3%). Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about $1.05 (option on the Summary tab)."
       ],
+      "cyclical": "operating margin fell from 7% to -11% (FY 2017-12-31)",
+      "normalizedEps": 1.05,
+      "normalized": {
+        "verdict": "OVERVALUED — price exceeds intrinsic value",
+        "confidence": 50,
+        "passing": 0,
+        "evaluated": 3,
+        "pe": 281.9,
+        "pb": 16.5,
+        "peg": 56.38,
+        "iv": {
+          "grahamNumber": 20.68,
+          "grahamRevised": 17.87,
+          "netNet": null,
+          "lynch": 5.27,
+          "dcf": null
+        },
+        "graham": "1/8 pass · 1 unverifiable | 3/7 pass",
+        "buffett": "C — weak",
+        "lynch": "OVERVALUED — PEG>1.5"
+      },
       "history": [
         "2024-12-31: rev 38.7B, EPS 5.99",
         "2023-12-31: rev 35.3B, EPS 8.36",
@@ -384,29 +544,29 @@
       "priceThen": 246.45,
       "eps": 9.38,
       "epsBasis": "TTM to 2025-06-30",
-      "growth": -0.304,
-      "epsCAGR5": -0.304,
+      "growth": 0.12,
+      "epsCAGR5": 0.267,
       "revCAGR5": 0.167,
       "roe": 0.257,
       "fundamentalsThrough": "2025-06-30",
       "reported": {
         "verdict": "OVERVALUED — price exceeds intrinsic value",
-        "confidence": 49,
+        "confidence": 72,
         "passing": 0,
-        "evaluated": 3,
+        "evaluated": 5,
         "pe": 26.3,
         "pb": 8.3,
-        "peg": null,
+        "peg": 2.19,
         "iv": {
           "grahamNumber": 79.09,
-          "grahamRevised": null,
+          "grahamRevised": 279.45,
           "netNet": 1.47,
-          "lynch": null,
-          "dcf": 15.52
+          "lynch": 112.56,
+          "dcf": 153.92
         },
-        "graham": "2/8 pass | 3/7 pass",
+        "graham": "3/8 pass | 3/7 pass",
         "buffett": "B — acceptable",
-        "lynch": "NO PEG SIGNAL — expected growth ≤ 0, so PEG is undefined"
+        "lynch": "OVERVALUED — PEG>1.5"
       },
       "warnings": [],
       "history": [

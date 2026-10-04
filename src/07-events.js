@@ -36,21 +36,13 @@ document.querySelectorAll('[data-example]').forEach(btn => btn.addEventListener(
 document.getElementById('tabContent').addEventListener('click', (e) => {
   const b = e.target.closest('.range-btn');
   if (b) { AppState.chartRange = b.dataset.range; renderApp(); return; }
-  // Switch the valuation between reported and core (ex non-operating) earnings.
-  const a = e.target.closest('[data-action="core-earnings"], [data-action="reported-earnings"]');
-  const s = AppState.stock, eq = s?.earningsQuality;
-  if (!a || !eq) return;
-  const src = AppState.fieldSource.stock, det = AppState.sourceDetail.stock;
-  if (a.dataset.action === 'core-earnings') {
-    s.epsTTM = eq.coreEPS; s.netIncome = eq.coreNetIncome; s.coreEarningsApplied = true;
-    src.epsTTM = src.netIncome = 'manual';
-    det.epsTTM = `Core earnings estimate (reported ${fmt.plain(eq.reportedEPS)} minus non-operating income after tax)`;
-    det.netIncome = 'Core earnings estimate (reported net income minus non-operating income after tax)';
-  } else {
-    s.epsTTM = eq.reportedEPS; s.netIncome = eq.reportedNetIncome; s.coreEarningsApplied = false;
-    src.epsTTM = src.netIncome = 'fetched';
-    det.epsTTM = 'Reported diluted EPS (SEC EDGAR)'; det.netIncome = 'Reported net income (SEC EDGAR)';
-  }
+  // Switch the valuation between reported, core (ex non-operating) and normalized (cyclical) earnings.
+  const a = e.target.closest('[data-action="core-earnings"], [data-action="reported-earnings"], [data-action="normalized-earnings"]');
+  const s = AppState.stock;
+  if (!a || !s) return;
+  const basis = a.dataset.action.replace('-earnings', '');
+  setEarningsBasis(s, AppState.fieldSource.stock, AppState.sourceDetail.stock, basis);
+  s.earningsBasisChoice = basis;
   recompute();
 });
 let resizeTimer = null;
@@ -97,6 +89,8 @@ document.getElementById('tabContent').addEventListener('change', (e) => {
     if (field === 'yearsPositiveEarnings') delete AppState[group].yearsPositiveEarningsOf;
     if (field === 'epsCAGR5') delete AppState[group].epsCAGR5Neg;
     if (field === 'revCAGR5') delete AppState[group].revCAGR5Neg;
+    // Typing EPS or net income by hand overrides any core/normalized basis.
+    if (field === 'epsTTM' || field === 'netIncome') { const g = AppState[group]; g.coreEarningsApplied = g.normalizedEarningsApplied = false; delete g.earningsBasisChoice; }
   }
   recompute();
 });
