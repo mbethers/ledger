@@ -13,10 +13,12 @@ const STATUSES = new Set(['intact', 'weakened', 'broken']);
 const THESIS = ['pricedIn', 'consensus', 'variant', 'catalyst', 'killCriteria'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 
-// Everything that must never change after creation. Check-ins and the research log are excluded.
+// Everything that must never change after creation, including each thesis and theme.
+// Check-ins and the research log are excluded.
 function fingerprint(p) {
+  const pos = Array.isArray(p.positions) ? p.positions : [];
   const core = { id: p.id, entryDate: p.entryDate, horizonYears: p.horizonYears, benchmark: p.benchmark, benchmarkEntry: p.benchmarkEntry,
-    cashWeight: p.cashWeight, positions: p.positions.map(x => [x.ticker, x.type, x.weight, x.entryPrice]) };
+    cashWeight: p.cashWeight, positions: pos.map(x => (x && typeof x === 'object' ? [x.ticker, x.type, x.weight, x.entryPrice, x.theme, x.thesis] : x)) };
   return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex');
 }
 
@@ -29,8 +31,11 @@ function validatePortfolio(p) {
   if (!ISO.test(p.entryDate || '')) e.push('entryDate must be YYYY-MM-DD');
   if (p.benchmark !== '^SP500TR') e.push('benchmark must be ^SP500TR');
   if (!(p.benchmarkEntry > 0)) e.push('benchmarkEntry must be > 0');
-  const pos = Array.isArray(p.positions) ? p.positions : [];
-  if (pos.length < 10 || pos.length > 20) e.push(`needs 10–20 positions (has ${pos.length})`);
+  if (!Array.isArray(p.positions)) e.push('positions must be an array');
+  const all = Array.isArray(p.positions) ? p.positions : [];
+  if (all.some(x => !x || typeof x !== 'object' || Array.isArray(x))) e.push('every position must be an object');
+  const pos = all.filter(x => x && typeof x === 'object' && !Array.isArray(x));
+  if (all.length < 10 || all.length > 20) e.push(`needs 10–20 positions (has ${all.length})`);
   const seen = new Set(), themes = {};
   for (const x of pos) {
     const t = x.ticker || '?';
@@ -42,15 +47,19 @@ function validatePortfolio(p) {
     if (!str(x.theme)) e.push(`${t}: theme missing`); else themes[x.theme] = (themes[x.theme] || 0) + (x.weight || 0);
     for (const f of THESIS) if (!str(x.thesis?.[f])) e.push(`${t}: thesis.${f} missing`);
     if (!Array.isArray(x.sources)) e.push(`${t}: sources must be an array`);
+    else if (x.sources.some(u => typeof u !== 'string' || !/^https?:\/\//i.test(u))) e.push(`${t}: every source must be an http(s) URL`);
   }
   for (const [th, w] of Object.entries(themes)) if (w > 0.35 + 1e-9) e.push(`theme ${th} is ${(w * 100).toFixed(1)}% (max 35%)`);
   const cash = p.cashWeight;
   if (!(cash >= 0 && cash <= 1)) e.push('cashWeight must be 0–1');
   const sum = pos.reduce((s, x) => s + (x.weight || 0), 0) + (cash || 0);
   if (Math.abs(sum - 1) > 0.001) e.push(`weights + cash sum to ${sum.toFixed(4)}, must be 1`);
+  let prev = null;
   for (const ci of p.checkIns || []) {
     if (!ISO.test(ci.date || '')) { e.push('check-in date must be YYYY-MM-DD'); continue; }
     if (ci.date < p.entryDate) e.push(`check-in ${ci.date} is before entry`);
+    if (prev && ci.date < prev) e.push(`check-in ${ci.date} is out of order (after ${prev})`);
+    prev = ci.date;
     for (const c of ci.positions || []) {
       if (!seen.has(c.ticker)) e.push(`check-in ${ci.date}: ${c.ticker} is not a position`);
       if (!STATUSES.has(c.status)) e.push(`check-in ${ci.date}: ${c.ticker} status must be intact, weakened or broken`);

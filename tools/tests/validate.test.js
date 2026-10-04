@@ -32,6 +32,32 @@ module.exports = ({ test, assert, ROOT }) => {
   test('check-in for unknown ticker', broken(p => { p.checkIns = [{ date: '2026-02-01', positions: [{ ticker: 'NOPE', status: 'intact', note: '' }], summary: '' }]; }, /NOPE/));
   test('check-in before entry', broken(p => { p.checkIns = [{ date: '2025-12-01', positions: [], summary: '' }]; }, /before entry/));
 
+  test('check-ins out of date order', broken(p => { p.checkIns = [{ date: '2026-03-01', positions: [], summary: '' }, { date: '2026-02-01', positions: [], summary: '' }]; }, /order/));
+  test('check-ins on the same date are allowed', () => {
+    const p = valid(); p.checkIns = [{ date: '2026-02-01', positions: [], summary: '' }, { date: '2026-02-01', positions: [], summary: '' }];
+    assert.equal(lib.validatePortfolio(p).length, 0);
+  });
+  test('non-http source', broken(p => { p.positions[0].sources = ['javascript:alert(1)']; }, /source/));
+  test('non-string source', broken(p => { p.positions[0].sources = [42]; }, /source/));
+  test('http and https sources are fine', () => {
+    const p = fixture(); p.positions[0].sources = ['https://example.com/a', 'HTTP://example.com/b']; p.fingerprint = lib.fingerprint(p);
+    assert.equal(lib.validatePortfolio(p).length, 0);
+  });
+  test('editing thesis or theme breaks the fingerprint', () => {
+    const a = valid(), b = valid(), c = valid();
+    b.positions[0].thesis.variant = 'changed after the fact'; assert.notEqual(lib.fingerprint(a), lib.fingerprint(b));
+    c.positions[0].theme = 'other'; assert.notEqual(lib.fingerprint(a), lib.fingerprint(c));
+    assert.ok(lib.validatePortfolio(b).some(e => /fingerprint/.test(e)));
+  });
+  test('missing positions returns errors instead of throwing', () => {
+    const p = valid(); delete p.positions;
+    const errs = lib.validatePortfolio(p); assert.ok(errs.some(e => /positions/.test(e)));
+  });
+  test('non-object position returns errors instead of throwing', () => {
+    const p = valid(); p.positions[0] = null;
+    const errs = lib.validatePortfolio(p); assert.ok(errs.some(e => /position/.test(e)));
+  });
+
   test('validateAll catches duplicate ids and dangling derivedFrom', () => {
     const a = valid(), b = valid(); const c = valid(); c.id = 'X'; c.derivedFrom = 'MISSING'; c.fingerprint = lib.fingerprint(c);
     const errs = lib.validateAll([a, b, c]);
