@@ -22,14 +22,19 @@ function pointOnOrBefore(rows, date) {
 function scorePortfolio(p, series, asOf) {
   const end = horizonEnd(p.entryDate, p.horizonYears);
   const endDate = asOf < end ? asOf : end;
-  const latest = {}; // ticker → latest check-in entry
-  for (const ci of p.checkIns || []) for (const e of ci.positions || []) latest[e.ticker] = { ...e, date: ci.date };
-  const exitOf = (t) => (latest[t] && ok(latest[t].exitPrice) ? latest[t] : null);
+  // Status comes from the latest check-in that mentions a ticker; an exit is the EARLIEST entry with a
+  // valid exitPrice and is sticky (later check-ins never cancel or move it).
+  const latest = {}, exits = {};
+  for (const ci of p.checkIns || []) for (const e of ci.positions || []) {
+    latest[e.ticker] = { ...e, date: ci.date };
+    if (!exits[e.ticker] && ok(e.exitPrice)) exits[e.ticker] = { ...e, date: ci.date };
+  }
+  const exitOf = (t) => exits[t] || null;
 
   const bench = (series[p.benchmark] || []).filter(r => r.date >= p.entryDate && r.date <= endDate);
   const positions = p.positions.map(x => ({ ticker: x.ticker, type: x.type, weight: x.weight, theme: x.theme, entryPrice: x.entryPrice,
     ret: null, contribution: null, exited: !!exitOf(x.ticker), approx: false, why: null, status: latest[x.ticker]?.status ?? null }));
-  const base = { endDate, matured: asOf >= end, days: Math.round(dDaysISO(endDate, p.entryDate)), positions };
+  const base = { endDate, matured: asOf >= end, days: Math.round(dDaysISO(endDate, p.entryDate)), approx: false, positions };
 
   const b0 = pointOnOrBefore(series[p.benchmark] || [], p.entryDate);
   if (!b0 || !bench.length) return { ...base, total: null, why: `benchmark ${p.benchmark} prices unavailable`, curve: [] };
@@ -49,6 +54,7 @@ function scorePortfolio(p, series, asOf) {
     }
     return (d) => (pointOnOrBefore(rows, d) || start).adj / start.adj;
   });
+  base.approx = positions.some(x => x.approx);
   if (missing.length) return { ...base, total: null, why: `price unavailable for ${missing.join(', ')}`, curve: [] };
 
   const cash = p.cashWeight || 0;

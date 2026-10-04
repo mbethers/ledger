@@ -37,4 +37,9 @@ module.exports = ({ test, assert, loadApp }) => {
     const r = loadApp().impliedGrowth({ ...base, price: 50, discountRate: 0.02 });
     assert.equal(r.g, null); assert.match(r.why, /discount rate/);
   });
+
+  test('share count 0 → reason, not a misleading growth rate', () => {
+    const r = loadApp().impliedGrowth({ ...base, price: 50, dilutedShares: 0 });
+    assert.equal(r.g, null); assert.match(r.why, /share count/);
+  });
 };

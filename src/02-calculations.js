@@ -316,6 +316,7 @@ function impliedGrowth(inp) {
   if (probe.ownerEarnings <= 0) return { g: null, why: 'owner earnings are ≤ 0, so no growth rate makes the DCF match the price' };
   if (!probe.dcf) return { g: null, why: probe.why.dcf || 'DCF not computable' };
   if (!probe.dcf.sanityOk) return { g: null, why: 'discount rate must exceed terminal growth' };
+  if (!ok(probe.dcf.valuePerShare)) return { g: null, why: 'DCF value per share not computable (share count missing or ≤ 0)' };
   const vps = (g) => at(g).dcf.valuePerShare;
   let [lo, hi] = IMPLIED_G_RANGE;
   if (vps(hi) < inp.price) return { g: null, why: `price exceeds the DCF value even at ${hi * 100}%/yr growth for 10 years` };

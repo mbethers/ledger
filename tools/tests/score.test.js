@@ -72,6 +72,33 @@ module.exports = ({ test, assert, loadApp, ROOT }) => {
     assert.equal(s.positions.find(x => x.ticker === 'AAA').approx, true);
   });
 
+  test('exit is sticky: a later check-in without exitPrice does not cancel it', () => {
+    const p = fixture(); const ser = allFlat(p); delete ser.AAA;
+    p.checkIns = [{ date: '2026-01-05', positions: [{ ticker: 'AAA', status: 'broken', note: 'delisted', exitPrice: 5 }], summary: 'x' },
+      { date: '2026-01-06', positions: [{ ticker: 'AAA', status: 'broken', note: 'still gone' }], summary: 'y' }];
+    const s = loadApp().scorePortfolio(p, ser, '2026-01-07');
+    assert.notEqual(s.total, null); close(s.total.ret, -0.075, 'still half of 15%');
+    const a = s.positions.find(x => x.ticker === 'AAA');
+    assert.equal(a.exited, true); assert.equal(a.approx, true); assert.equal(a.status, 'broken');
+  });
+
+  test('exit is sticky: earliest exitPrice wins over a later one', () => {
+    const p = fixture(); const ser = allFlat(p); delete ser.AAA;
+    p.checkIns = [{ date: '2026-01-05', positions: [{ ticker: 'AAA', status: 'broken', note: 'sold', exitPrice: 5 }], summary: 'x' },
+      { date: '2026-01-06', positions: [{ ticker: 'AAA', status: 'weakened', note: 'typo', exitPrice: 20 }], summary: 'y' }];
+    const s = loadApp().scorePortfolio(p, ser, '2026-01-07');
+    close(s.total.ret, -0.075, 'first exit price used');
+    assert.equal(s.positions.find(x => x.ticker === 'AAA').status, 'weakened');
+  });
+
+  test('score.approx is true only when a holding is valued at its exit price', () => {
+    const p = fixture(); const ser = allFlat(p);
+    assert.equal(loadApp().scorePortfolio(p, ser, '2026-01-07').approx, false);
+    delete ser.AAA;
+    p.checkIns = [{ date: '2026-01-05', positions: [{ ticker: 'AAA', status: 'broken', note: 'delisted', exitPrice: 5 }], summary: 'x' }];
+    assert.equal(loadApp().scorePortfolio(p, ser, '2026-01-07').approx, true);
+  });
+
   test('horizonEnd adds whole years', () => {
     assert.equal(loadApp().horizonEnd('2026-10-05', 3), '2029-10-05');
   });

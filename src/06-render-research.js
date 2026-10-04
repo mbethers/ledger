@@ -20,17 +20,19 @@ function closeResearch() {
 async function scoreAllResearch() {
   const R = AppState.research; if (R.loading || !RESEARCH_DATA.length) return;
   R.loading = true; renderResearch();
-  const today = new Date().toISOString().slice(0, 10);
-  const jobs = []; const series = {};
-  for (const p of RESEARCH_DATA) for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) jobs.push([sym, p.entryDate]);
-  const queue = [...new Map(jobs.map(j => [j.join('|'), j])).values()];
-  const worker = async () => { while (queue.length) { const [sym, from] = queue.shift(); series[`${sym}|${from}`] = await fetchAdjSeries(sym, from); } };
-  await Promise.all([worker(), worker()]);
-  for (const p of RESEARCH_DATA) {
-    const s = {}; for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) { const rows = series[`${sym}|${p.entryDate}`]; if (rows) s[sym] = rows; }
-    R.scores[p.id] = scorePortfolio(p, s, today);
-  }
-  R.loading = false; renderResearch();
+  try {
+    const today = new Date().toISOString().slice(0, 10);
+    const jobs = []; const series = {};
+    for (const p of RESEARCH_DATA) for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) jobs.push([sym, p.entryDate]);
+    const queue = [...new Map(jobs.map(j => [j.join('|'), j])).values()];
+    const worker = async () => { while (queue.length) { const [sym, from] = queue.shift(); series[`${sym}|${from}`] = await fetchAdjSeries(sym, from); } };
+    await Promise.all([worker(), worker()]);
+    for (const p of RESEARCH_DATA) {
+      const s = {}; for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) { const rows = series[`${sym}|${p.entryDate}`]; if (rows) s[sym] = rows; }
+      try { R.scores[p.id] = scorePortfolio(p, s, today); }
+      catch (e) { R.scores[p.id] = { total: null, why: `scoring error: ${e.message}`, positions: [], curve: [] }; }
+    }
+  } finally { R.loading = false; renderResearch(); }
 }
 
 const signedPct = (x, dp = 1) => (ok(x) ? `<span class="${x >= 0 ? 'pos-up' : 'pos-down'}">${x >= 0 ? '+' : ''}${(x * 100).toFixed(dp)}%</span>` : unav('n/a'));
@@ -92,7 +94,7 @@ function renderResearchDetail(p) {
       ${stat('S&amp;P 500 TR', t ? signedPct(t.benchRet) : waiting, t?.annBench != null ? `${signedPct(t.annBench)}/yr` : '')}
       ${stat('Excess', t ? signedPct(t.excess) : waiting)}
       ${stat('Worst drop / volatility', t ? `${plain(t.maxDrawdown)} / ${plain(t.vol)}` : waiting, t ? `S&amp;P ${plain(t.benchMaxDrawdown)} / ${plain(t.benchVol)}` : '')}
-    </div>`;
+    </div>${s?.approx ? '<p class="rc-sub" style="margin:-8px 0 14px">Includes holdings valued at their recorded exit price (no price history) — approximate.</p>' : ''}`;
   const chart = `<div class="card" style="margin-bottom:18px"><div class="card-head"><h3>$100,000: portfolio vs. S&amp;P 500 TR</h3></div>
       <div class="card-body">${t && s.curve.length >= 2 ? `<div id="researchChart" style="height:240px"></div>` : (R.loading ? '<p>Loading prices…</p>' : unav(s?.why || 'not enough price history yet'))}</div></div>`;
   const posScore = Object.fromEntries((s?.positions || []).map(x => [x.ticker, x]));
@@ -104,7 +106,7 @@ function renderResearchDetail(p) {
         <dt>Priced in</dt><dd>${esc(x.thesis.pricedIn)}</dd><dt>Market view</dt><dd>${esc(x.thesis.consensus)}</dd>
         <dt>Our view</dt><dd>${esc(x.thesis.variant)}</dd><dt>Trigger</dt><dd>${esc(x.thesis.catalyst)}</dd><dt>Exit rule</dt><dd>${esc(x.thesis.killCriteria)}</dd>
         <dt>Theme</dt><dd>${esc(x.theme)}</dd>
-        <dt>Sources</dt><dd>${x.sources.length ? x.sources.map(u => `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/, '').slice(0, 60))}</a>`).join('<br>') : 'none recorded'}</dd>
+        <dt>Sources</dt><dd>${x.sources.length ? x.sources.map(u => (typeof u === 'string' && /^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener">${esc(u.replace(/^https?:\/\/(www\.)?/i, '').slice(0, 60))}</a>` : esc(String(u)))).join('<br>') : 'none recorded'}</dd>
         <dt>Check-ins</dt><dd>${hist.length ? `<ul style="margin:0; padding-left:18px">${hist.join('')}</ul>` : 'none yet'}</dd>
       </dl><p style="margin-top:8px"><button type="button" class="btn sm" data-action="research-ledger:${esc(x.ticker)}:${esc(x.type)}">Open ${esc(x.ticker)} in Ledger</button></p></td></tr>` : '';
     return `<tr style="cursor:pointer" data-action="research-toggle:${esc(x.ticker)}">
