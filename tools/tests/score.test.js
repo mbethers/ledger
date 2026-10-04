@@ -37,7 +37,7 @@ module.exports = ({ test, assert, loadApp, ROOT }) => {
   test('missing series → total null with reason naming the ticker', () => {
     const p = fixture(); const ser = allFlat(p); delete ser.CCC;
     const s = loadApp().scorePortfolio(p, ser, '2026-01-07');
-    assert.equal(s.total, null); assert.match(s.why, /CCC/); assert.deepEqual(s.curve, []);
+    assert.equal(s.total, null); assert.match(s.why, /CCC/); assert.equal(s.curve.length, 0);
     assert.match(s.positions.find(x => x.ticker === 'CCC').why, /unavailable/);
   });
 
