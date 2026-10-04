@@ -22,6 +22,24 @@ Anything that can't be fetched is shown as **Unavailable** with the reason. Miss
 
 **Foreign companies.** Filers that report under IFRS or in another currency (e.g. TSMC in Taiwan dollars) are read and converted to US dollars at the live exchange rate, with per-share figures scaled to the US-listed ADR using a built-in ratio list (`ADR_RATIO` in `src/02-calculations.js`).
 
+**What's priced in.** Each stock's Summary tab shows the growth rate today's price implies under Ledger's owner-earnings DCF (a reverse DCF), next to the company's 5-year revenue and EPS growth.
+
+## Research portfolios
+
+Hypothetical $100k portfolios for 1–5 year horizons, researched in Claude Code (`.claude/skills/ledger-research/`) and scored in the app's **Research** view against the S&P 500 total-return index. They are research, not investment advice. Each portfolio is frozen when created (an integrity fingerprint catches edits) and scored buy-and-hold. Check-ins add notes but never change holdings.
+
+Research data is private: `research/` and `ledger.private.html` are git-ignored, and the public `ledger.html` always ships with none.
+
+| Command | What it does |
+|---|---|
+| `node tools/build.js --private` | Builds `ledger.private.html` with your portfolios; copies it to `shareDir` from `research/config.json` if set (e.g. `{"shareDir": "~/Library/CloudStorage/GoogleDrive-<you>/My Drive/Ledger"}`) |
+| `node tools/score-portfolios.js [id]` | Scores portfolios from the command line |
+| `node tools/record-portfolio.js <draft>` | Freezes a researched draft at today's closing prices |
+| `node tools/add-checkin.js <id> <checkin>` | Appends a check-in |
+| `LEDGER_CONTACT=you@example.com node tools/screen.js` | Screens the S&P 500, ADRs and bond funds |
+
+To share with someone: send them `ledger.private.html` (or the Drive copy). They download it and open it in a browser. Drive's preview won't run it.
+
 ## Making changes
 
 The app is still delivered as one file, but it's edited as parts in `src/` and assembled by a build script:
@@ -41,6 +59,12 @@ After editing anything in `src/`:
 
 ```bash
 node tools/build.js
+```
+
+Run the tests after any change to `src/` or `tools/`:
+
+```bash
+node tools/test.js
 ```
 
 This rebuilds `ledger.html` and stops with an error if the script has a syntax problem. Commit the `src/` change and the rebuilt `ledger.html` together.

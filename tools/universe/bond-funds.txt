@@ -1,4 +1,4 @@
-# Bond funds screened on yield and trailing return (no SEC fundamentals).
+# Bond funds screened on trailing return and distance from 52-week high (no SEC fundamentals).
 BND
 AGG
 BNDX
