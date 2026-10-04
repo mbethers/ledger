@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ledger — Value Investing Research Terminal</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Source+Serif+4:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#141F1B; --bg-alt:#101815; --surface:#1B2A24; --surface-2:#22342C; --surface-3:#293D33;
+  --border:#33473C; --border-strong:#455A4D;
+  --ink:#EAE5D6; --ink-dim:#C9C2AC; --ink-muted:#96A99C; --ink-faint:#7D8D82;
+  --brass:#C9A15A; --brass-bright:#E3C384; --brass-dim:#8C7442;
+  --good:#74A98A; --good-bg:rgba(116,169,138,.13); --good-border:rgba(116,169,138,.38);
+  --bad:#D07563; --bad-bg:rgba(188,99,83,.14); --bad-border:rgba(188,99,83,.4);
+  --watch:#C9A15A; --watch-bg:rgba(201,161,90,.13); --watch-border:rgba(201,161,90,.4);
+  --graham:#7C9CBF; --buffett:#C9A15A; --lynch:#8FAE7E;
+  --font-display:'Fraunces',Georgia,serif;
+  --font-body:'Source Serif 4',Georgia,serif;
+  --font-mono:'IBM Plex Mono',ui-monospace,'SF Mono',Consolas,monospace;
+  --radius:3px; --radius-lg:6px;
+  --shadow-card: 0 1px 0 rgba(0,0,0,.25), 0 8px 24px -12px rgba(0,0,0,.5);
+}
+*,*::before,*::after{box-sizing:border-box}
+[hidden]{display:none !important} /* FIX: .fetch-status/.watchlist-strip set display:flex, which overrode the hidden attribute */
+html{-webkit-text-size-adjust:100%}
+body{
+  margin:0; background:var(--bg); color:var(--ink); font-family:var(--font-body);
+  font-size:15px; line-height:1.5; -webkit-font-smoothing:antialiased;
+  background-image:
+    radial-gradient(ellipse 900px 500px at 15% -10%, rgba(201,161,90,.06), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 100% 0%, rgba(124,156,191,.05), transparent 55%);
+  background-attachment:fixed;
+}
+h1,h2,h3,h4{font-family:var(--font-display); font-weight:600; margin:0; color:var(--ink)}
+p{margin:0}
+button{font-family:inherit; cursor:pointer}
+input,select,textarea{font-family:inherit}
+::selection{background:rgba(201,161,90,.35)}
+.mono{font-family:var(--font-mono)}
+a{color:var(--brass-bright)}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:var(--surface-3);border-radius:6px}
+
+/* ==================== TOPBAR ==================== */
+.topbar{position:sticky; top:0; z-index:40; background:rgba(20,31,27,.92); backdrop-filter:blur(10px); border-bottom:1px solid var(--border)}
+.topbar-inner{max-width:1180px; margin:0 auto; padding:14px 20px; display:flex; align-items:center; gap:24px; flex-wrap:wrap}
+.brand{display:flex; align-items:baseline; gap:8px; white-space:nowrap}
+.brand-mark{font-family:var(--font-display); font-size:22px; color:var(--brass); font-weight:600; border:1px solid var(--brass-dim); border-radius:50%; width:28px; height:28px; display:inline-flex; align-items:center; justify-content:center; line-height:1}
+.brand-name{font-family:var(--font-display); font-size:19px; font-weight:600; letter-spacing:.01em}
+.brand-sub{font-size:11.5px; color:var(--ink-faint); font-style:italic; display:none}
+@media(min-width:720px){.brand-sub{display:inline}}
+.ticker-form{display:flex; align-items:center; gap:12px; flex:1; min-width:260px; flex-wrap:wrap}
+.asset-toggle{display:inline-flex; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:2px}
+.asset-btn{background:transparent; border:none; color:var(--ink-muted); font-size:12.5px; font-weight:500; padding:7px 12px; border-radius:4px; transition:.15s; letter-spacing:.01em}
+.asset-btn:hover{color:var(--ink)}
+.asset-btn.is-active{background:var(--surface-3); color:var(--brass-bright); box-shadow:0 1px 0 rgba(0,0,0,.2) inset}
+.ticker-input-wrap{display:flex; flex:1; min-width:200px; max-width:420px; gap:8px}
+#tickerInput{flex:1; min-width:0; background:var(--surface); border:1px solid var(--border); color:var(--ink); padding:9px 12px; border-radius:var(--radius); font-family:var(--font-mono); font-size:14px; letter-spacing:.03em; text-transform:uppercase; outline:none; transition:.15s}
+#tickerInput::placeholder{color:var(--ink-faint); text-transform:none; letter-spacing:0; font-family:var(--font-body); font-style:italic}
+#tickerInput:focus{border-color:var(--brass-dim); box-shadow:0 0 0 3px rgba(201,161,90,.12)}
+.btn-analyze{background:var(--brass); color:#1A1408; border:none; padding:9px 18px; border-radius:var(--radius); font-weight:600; font-size:13.5px; letter-spacing:.02em; white-space:nowrap; transition:.15s}
+.btn-analyze:hover{background:var(--brass-bright)}
+.btn-analyze:disabled{opacity:.55; cursor:progress}
+.fetch-status{max-width:1180px; margin:0 auto; padding:0 20px 12px; font-family:var(--font-mono); font-size:12px; color:var(--ink-muted); display:flex; flex-direction:column; gap:3px; max-height:30vh; overflow:auto}
+.fetch-status .fs-line{display:flex; gap:8px; align-items:baseline}
+.fetch-status .fs-line .fs-icon{width:14px; flex:none; text-align:center}
+.fetch-status .fs-ok{color:var(--good)} .fetch-status .fs-warn{color:var(--watch)} .fetch-status .fs-err{color:var(--bad)} .fetch-status .fs-info{color:var(--ink-faint)}
+.fs-toggle{align-self:flex-start; background:none; border:none; color:var(--ink-faint); font-family:var(--font-mono); font-size:11px; padding:0; text-decoration:underline}
+
+/* ==================== WATCHLIST ==================== */
+.watchlist-strip{max-width:1180px; margin:0 auto; padding:10px 20px 0; display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:12px; color:var(--ink-faint)}
+.wl-chip{font-family:var(--font-mono); font-size:12px; background:var(--surface); border:1px solid var(--border); color:var(--ink-dim); padding:5px 10px; border-radius:20px; transition:.15s}
+.wl-chip:hover{border-color:var(--brass-dim); color:var(--brass-bright)}
+.wl-chip.is-current{border-color:var(--brass); color:var(--brass-bright); background:var(--surface-2)}
+
+/* ==================== EMPTY STATE ==================== */
+.empty-state{max-width:680px; margin:0 auto; padding:14vh 24px 8vh; text-align:center}
+.empty-eyebrow{font-family:var(--font-mono); font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--brass); margin-bottom:14px}
+.empty-state h1{font-size:clamp(28px,5vw,42px); line-height:1.15; margin-bottom:18px; font-style:italic; font-weight:500}
+.empty-body{color:var(--ink-muted); font-size:16px; line-height:1.65; margin-bottom:26px}
+.empty-examples{display:flex; gap:8px; align-items:center; justify-content:center; flex-wrap:wrap; margin-bottom:22px; color:var(--ink-faint); font-size:13px}
+.chip{font-family:var(--font-mono); background:var(--surface); border:1px solid var(--border-strong); color:var(--ink); padding:6px 13px; border-radius:20px; font-size:13px; transition:.15s}
+.chip:hover{border-color:var(--brass); color:var(--brass-bright); background:var(--surface-2)}
+.empty-note{color:var(--ink-faint); font-size:13px; font-style:italic}
+
+/* ==================== TABS ==================== */
+.tab-nav{max-width:1180px; margin:18px auto 0; padding:0 20px; display:flex; gap:2px; overflow-x:auto; border-bottom:1px solid var(--border); scrollbar-width:none}
+.tab-nav::-webkit-scrollbar{display:none}
+.tab-btn{background:transparent; border:none; color:var(--ink-faint); padding:11px 16px; font-size:13px; font-weight:500; white-space:nowrap; border-bottom:2px solid transparent; margin-bottom:-1px; transition:.15s; letter-spacing:.01em}
+.tab-btn:hover{color:var(--ink-dim)}
+.tab-btn.is-active{color:var(--ink); border-bottom-color:var(--brass)}
+.tab-btn .tag{display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:7px; vertical-align:middle}
+.tab-content{max-width:1180px; margin:0 auto; padding:26px 20px 80px}
+.tab-pane{display:none; animation:fadein .2s ease}
+.tab-pane.is-active{display:block}
+@keyframes fadein{from{opacity:0; transform:translateY(4px)} to{opacity:1; transform:none}}
+.report-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:14px}
+.report-head h2{font-size:22px; font-style:italic; font-weight:500}
+.report-head .kv-inline{font-size:12px}
+
+/* ==================== LAYOUT GRID ==================== */
+.grid-2{display:grid; grid-template-columns:minmax(0,1fr); gap:18px}
+@media(min-width:860px){.grid-2{grid-template-columns:minmax(0,1.3fr) minmax(0,1fr)}}
+.grid-3{display:grid; grid-template-columns:minmax(0,1fr); gap:14px}
+@media(min-width:720px){.grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.stack{display:flex; flex-direction:column; gap:18px}
+
+/* ==================== CARD ==================== */
+.card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); box-shadow:var(--shadow-card); overflow:hidden}
+.card-head{padding:14px 18px; border-bottom:1px solid var(--border); display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap}
+.card-head h3{font-size:15px; font-weight:600; font-style:italic; color:var(--ink)}
+.card-head .card-note{font-size:11.5px; color:var(--ink-faint); font-family:var(--font-mono)}
+.card-body{padding:16px 18px}
+.card-body.no-pad{padding:0; overflow-x:auto}
+.mono-tag{display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; font-family:var(--font-mono); font-size:11px; font-weight:600; flex:none}
+.mono-tag.g{background:rgba(124,156,191,.15); color:var(--graham); border:1px solid rgba(124,156,191,.35)}
+.mono-tag.b{background:rgba(201,161,90,.15); color:var(--buffett); border:1px solid rgba(201,161,90,.35)}
+.mono-tag.l{background:rgba(143,174,126,.15); color:var(--lynch); border:1px solid rgba(143,174,126,.35)}
+
+/* ==================== HEADLINE STAT ROW ==================== */
+.stat-row{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:1px; background:var(--border); border:1px solid var(--border); border-radius:var(--radius-lg); overflow:hidden; margin-bottom:18px}
+@media(min-width:640px){.stat-row{grid-template-columns:repeat(4,minmax(0,1fr))}}
+.stat-cell{background:var(--surface); padding:14px 16px}
+.stat-label{font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--ink-faint); margin-bottom:6px}
+.stat-value{font-family:var(--font-mono); font-size:20px; font-weight:600; color:var(--ink)}
+.stat-value.good{color:var(--good)} .stat-value.bad{color:var(--bad)} .stat-value.watch{color:var(--watch)}
+.stat-sub{font-size:11px; color:var(--ink-faint); font-family:var(--font-mono); margin-top:3px}
+
+/* ==================== UNAVAILABLE / DATA GAPS ==================== */
+.unavail{color:var(--bad); font-family:var(--font-body); font-style:italic; font-weight:500; font-size:13px}
+.unavail small{display:block; color:var(--ink-faint); font-size:11px; font-weight:400; line-height:1.35; white-space:normal; margin-top:2px}
+.stat-value .unavail{font-size:15px}
+.gap-panel{border-left:3px solid var(--bad); margin-bottom:18px}
+.gap-panel.minor{border-left-color:var(--watch)}
+.gap-list{margin:0; padding:0; list-style:none; font-size:13px}
+.gap-list li{padding:6px 0; border-bottom:1px solid var(--border); color:var(--ink-dim)}
+.gap-list li:last-child{border-bottom:none}
+.gap-list b{color:var(--ink); font-weight:600}
+.gap-list .gap-why{display:block; color:var(--ink-faint); font-size:12px; font-style:italic}
+
+/* ==================== VERDICT STAMP ==================== */
+.verdict-wrap{display:flex; align-items:center; gap:22px; flex-wrap:wrap; padding:22px 4px 26px}
+.verdict-stamp{font-family:var(--font-display); font-weight:700; font-size:clamp(22px,3.4vw,30px); text-transform:uppercase; letter-spacing:.03em; padding:14px 26px; border-radius:4px; border:3px double; transform:rotate(-2.2deg); display:inline-block; line-height:1.1; box-shadow:0 6px 18px -6px rgba(0,0,0,.4)}
+.verdict-stamp.undervalued{color:var(--good); border-color:var(--good); background:var(--good-bg)}
+.verdict-stamp.overvalued{color:var(--bad); border-color:var(--bad); background:var(--bad-bg)}
+.verdict-stamp.watch{color:var(--watch); border-color:var(--watch); background:var(--watch-bg)}
+.verdict-stamp.incomplete{color:var(--ink-muted); border-color:var(--ink-faint); background:var(--surface-2)}
+.verdict-meta{flex:1; min-width:220px}
+.verdict-meta .vm-conf{font-family:var(--font-mono); font-size:12.5px; color:var(--ink-muted); margin-bottom:6px}
+.verdict-meta .vm-conf b{color:var(--brass-bright)}
+.verdict-bottomline{font-size:15.5px; color:var(--ink-dim); line-height:1.55; font-style:italic}
+.conf-bar{width:100%; max-width:220px; height:5px; background:var(--surface-3); border-radius:3px; overflow:hidden; margin-top:6px; margin-bottom:10px}
+.conf-bar-fill{height:100%; background:linear-gradient(90deg,var(--brass-dim),var(--brass))}
+
+/* ==================== LEDGER ROWS ==================== */
+.ledger{width:100%; border-collapse:collapse}
+.ledger tr{border-bottom:1px solid var(--border)}
+.ledger tr:last-child{border-bottom:none}
+.ledger td{padding:9px 4px; vertical-align:middle}
+.ledger td.lbl{color:var(--ink-muted); font-size:13.5px; width:52%}
+.ledger td.lbl .hint{display:block; font-size:11px; color:var(--ink-faint); font-style:italic; margin-top:1px}
+.ledger td.lbl .hint.miss{color:var(--bad)}
+.ledger td.val{font-family:var(--font-mono); text-align:right; font-size:14px; color:var(--ink); font-weight:500}
+.ledger td.val .unavail small{text-align:right}
+.ledger td.val.good{color:var(--good)} .ledger td.val.bad{color:var(--bad)} .ledger td.val.watch{color:var(--watch)}
+.ledger tr.total td{padding-top:12px; border-top:1px solid var(--border-strong); font-weight:600}
+.ledger input.efield, .ledger select.efield{width:118px; text-align:right; background:var(--surface-2); border:1px solid var(--border); color:var(--ink); font-family:var(--font-mono); font-size:13.5px; padding:5px 8px; border-radius:3px; outline:none; transition:.15s}
+.ledger select.efield{width:auto; min-width:118px; text-align:left; font-family:var(--font-body)}
+.ledger input.efield:focus, .ledger select.efield:focus{border-color:var(--brass-dim); background:var(--surface-3)}
+.ledger input.efield.wide{width:100%; text-align:left; font-family:var(--font-body)}
+.ledger input.efield.is-missing{border-color:var(--bad-border); background:var(--bad-bg)}
+.ledger input.efield::placeholder{color:var(--bad); font-style:italic; font-family:var(--font-body); font-size:12px}
+textarea.efield{width:100%; background:var(--surface-2); border:1px solid var(--border); color:var(--ink); font-family:var(--font-body); font-size:13.5px; padding:8px 10px; border-radius:3px; resize:vertical; min-height:52px}
+.src-dot{display:inline-block; width:6px; height:6px; border-radius:50%; margin-right:6px; vertical-align:middle; flex:none}
+.src-dot.fetched{background:var(--good)} .src-dot.default{background:var(--brass)} .src-dot.manual{background:var(--ink-faint)} .src-dot.missing{background:var(--bad)}
+
+/* ==================== BADGES / PILLS ==================== */
+.pill{display:inline-flex; align-items:center; gap:5px; font-size:11.5px; font-weight:600; letter-spacing:.02em; padding:3px 9px; border-radius:20px; font-family:var(--font-mono); white-space:nowrap}
+.pill.good{background:var(--good-bg); color:var(--good); border:1px solid var(--good-border)}
+.pill.bad{background:var(--bad-bg); color:var(--bad); border:1px solid var(--bad-border)}
+.pill.watch{background:var(--watch-bg); color:var(--watch); border:1px solid var(--watch-border)}
+.pill.na{background:var(--surface-3); color:var(--ink-faint); border:1px solid var(--border)}
+
+/* ==================== DATA TABLE ==================== */
+.data-table{width:100%; border-collapse:collapse; font-size:13.5px}
+.data-table th{text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:var(--ink-faint); padding:8px 10px; border-bottom:1px solid var(--border-strong); font-weight:600}
+.data-table th.num, .data-table td.num{text-align:right; font-family:var(--font-mono)}
+.data-table td{padding:10px 10px; border-bottom:1px solid var(--border); color:var(--ink-dim); vertical-align:top}
+.data-table tr:last-child td{border-bottom:none}
+.data-table tr.hl td{color:var(--ink); font-weight:600; background:rgba(201,161,90,.05)}
+.data-table td.name{color:var(--ink); font-weight:500}
+.data-table td.name .fml{display:block; font-size:11px; color:var(--ink-faint); font-family:var(--font-mono); font-weight:400; margin-top:1px}
+
+/* ==================== CHECKLIST ROWS ==================== */
+.check-row{display:flex; align-items:flex-start; gap:12px; padding:11px 0; border-bottom:1px solid var(--border)}
+.check-row:last-child{border-bottom:none}
+.check-row .cr-main{flex:1; min-width:0}
+.check-row .cr-title{font-size:13.5px; color:var(--ink); margin-bottom:2px}
+.check-row .cr-detail{font-size:12px; color:var(--ink-faint); font-family:var(--font-mono)}
+.check-row .cr-note{font-size:11.5px; color:var(--watch); font-style:italic; margin-top:2px}
+.check-row .cr-score{font-family:var(--font-mono); font-size:13px; color:var(--ink-muted); white-space:nowrap}
+.dots{display:inline-flex; gap:3px; vertical-align:middle}
+.dots i{width:7px; height:7px; border-radius:50%; background:var(--surface-3); display:inline-block}
+.dots i.on{background:var(--brass)}
+
+/* ==================== MISC ==================== */
+.section-title{font-size:12px; text-transform:uppercase; letter-spacing:.09em; color:var(--brass); margin:26px 0 12px; font-weight:600}
+.section-title:first-child{margin-top:0}
+.note-box{background:var(--surface-2); border:1px solid var(--border); border-left:3px solid var(--brass-dim); border-radius:0 4px 4px 0; padding:12px 14px; font-size:13px; color:var(--ink-muted); line-height:1.55}
+.note-box.warn{border-left-color:var(--bad)}
+.barchart-row{display:flex; align-items:center; gap:10px; padding:6px 0}
+.barchart-label{width:150px; flex:none; font-size:12px; color:var(--ink-muted)}
+.barchart-track{flex:1; height:16px; background:var(--surface-2); border-radius:3px; position:relative; overflow:hidden}
+.barchart-track.empty{background:transparent; height:auto; font-size:11.5px; color:var(--ink-faint); font-style:italic; overflow:visible}
+.barchart-fill{position:absolute; top:0; bottom:0; left:0; border-radius:3px}
+.barchart-fill.good{background:var(--good)} .barchart-fill.bad{background:var(--bad)}
+.barchart-marker{position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--brass-bright)}
+.barchart-val{width:86px; flex:none; text-align:right; font-family:var(--font-mono); font-size:12.5px}
+@media(max-width:520px){.barchart-label{width:96px}}
+.empty-tab{padding:40px 10px; text-align:center; color:var(--ink-faint)}
+.empty-tab h3{color:var(--ink-muted); font-style:italic; margin-bottom:8px}
+.kv-inline{font-family:var(--font-mono); font-size:12.5px; color:var(--ink-muted)}
+.kv-inline b{color:var(--ink)}
+.source-table td, .source-table th{font-size:12.5px}
+.source-table td.field{color:var(--ink)}
+.source-table td.source{font-family:var(--font-mono); font-size:11.5px; word-break:break-word}
+.app-footer{max-width:1180px; margin:0 auto; padding:24px 20px 60px; color:var(--ink-faint); font-size:11.5px; line-height:1.6; border-top:1px solid var(--border); margin-top:20px}
+.app-footer p + p{margin-top:8px}
+
+/* ==================== PRICE CHART ==================== */
+:root{--chart-line:#B98C3F; --chart-area:rgba(185,140,63,.10)} /* validated: dark surface, all six checks pass */
+.range-btns{display:inline-flex; background:var(--surface-2); border:1px solid var(--border); border-radius:var(--radius-lg); padding:2px}
+.range-btn{background:transparent; border:none; color:var(--ink-muted); font-family:var(--font-mono); font-size:11.5px; padding:4px 10px; border-radius:4px}
+.range-btn:hover{color:var(--ink)}
+.range-btn.is-active{background:var(--surface-3); color:var(--brass-bright)}
+.pc-head{display:flex; align-items:baseline; gap:10px; flex-wrap:wrap; margin-bottom:8px; font-family:var(--font-mono); font-size:12.5px; color:var(--ink-muted)}
+.pc-head b{color:var(--ink); font-weight:600}
+.pc-wrap{position:relative; width:100%; height:240px; touch-action:pan-y}
+.pc-wrap svg{display:block; width:100%; height:100%; overflow:visible}
+.pc-wrap svg:focus{outline:none}
+.pc-wrap svg:focus-visible{outline:2px solid var(--brass-dim); outline-offset:4px; border-radius:4px}
+.pc-axis{fill:var(--ink-faint); font-family:var(--font-mono); font-size:11px; font-variant-numeric:tabular-nums}
+.pc-grid{stroke:var(--border); stroke-width:1; shape-rendering:crispEdges}
+.pc-tip{position:absolute; top:0; pointer-events:none; background:var(--bg-alt); border:1px solid var(--border-strong); border-radius:4px; padding:6px 9px; font-family:var(--font-mono); font-size:12px; white-space:nowrap; box-shadow:0 6px 16px -6px rgba(0,0,0,.5); transform:translateX(-50%)}
+.pc-tip .v{color:var(--ink); font-weight:600; font-size:13px}
+.pc-tip .d{color:var(--ink-faint); font-size:11px}
+.pc-note{font-size:11.5px; color:var(--ink-faint); margin-top:8px}
+details.pc-table summary{cursor:pointer; color:var(--ink-faint); font-size:12px; margin-top:8px}
+
+/* ==================== FINANCIALS TABLE ==================== */
+.fin-table{min-width:880px; font-size:12.5px}
+.fin-table th, .fin-table td{padding:8px 8px}
+.fin-table td{white-space:nowrap}
+.fin-table th{white-space:normal; line-height:1.3; vertical-align:bottom}
+.fin-table th:first-child, .fin-table td:first-child{position:sticky; left:0; background:var(--surface); z-index:1}
+.fin-table tr.ttm td{background:rgba(201,161,90,.05); color:var(--ink)}
+.fin-table tr.ttm td:first-child{background:#202f28}
+.fin-table td.neg{color:var(--bad)}
+.fin-table .nr{color:var(--ink-faint); font-style:italic; font-family:var(--font-body)}
+.fin-table sup{color:var(--watch)}
+
+/* ==================== OPTIONAL DATA KEYS ==================== */
+.btn{background:var(--surface-2); border:1px solid var(--border-strong); color:var(--ink-dim); padding:7px 14px; border-radius:var(--radius); font-size:12.5px; font-weight:500; transition:.15s}
+.btn:hover{border-color:var(--brass-dim); color:var(--ink)}
+.btn.primary{background:var(--brass); color:#1A1408; border-color:var(--brass); font-weight:600}
+.btn.primary:hover{background:var(--brass-bright)}
+.btn.sm{padding:5px 10px; font-size:11.5px}
+.keys-btn{white-space:nowrap}
+.keys-btn .kdot{display:inline-block; width:6px; height:6px; border-radius:50%; background:var(--ink-faint); margin-right:6px; vertical-align:middle}
+.keys-btn.has-keys .kdot{background:var(--good)}
+.keys-panel{max-width:1180px; margin:0 auto; padding:0 20px 14px}
+.keys-inner{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius-lg); padding:14px 16px}
+.keys-intro{font-size:12.5px; color:var(--ink-muted); line-height:1.55; margin-bottom:12px}
+.keys-row{display:grid; grid-template-columns:150px minmax(0,1fr) auto; gap:10px; align-items:center; margin-bottom:8px}
+.keys-row label{font-size:12.5px; color:var(--ink-dim)}
+.keys-row input{background:var(--surface-2); border:1px solid var(--border); color:var(--ink); font-family:var(--font-mono); font-size:13px; padding:7px 10px; border-radius:var(--radius); outline:none; min-width:0}
+.keys-row input:focus{border-color:var(--brass-dim)}
+.key-state{font-family:var(--font-mono); font-size:11px; color:var(--ink-faint); white-space:nowrap}
+.key-state.set{color:var(--good)}
+.keys-actions{display:flex; gap:8px; flex-wrap:wrap; margin-top:4px}
+@media(max-width:560px){.keys-row{grid-template-columns:minmax(0,1fr)} .key-state{white-space:normal}}
+@media(max-width:640px){
+  .verdict-wrap{flex-direction:column; align-items:flex-start}
+  .ledger td.lbl{width:auto}
+  .ledger input.efield{width:100px}
+}
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="brand-mark">§</span>
+        <span class="brand-name">Ledger</span>
+        <span class="brand-sub">value research terminal</span>
+      </div>
+      <!-- Deliberately NOT a <form>: sandboxed frames (e.g. artifact viewers) block form
+           submission, which is why the original Analyze button silently did nothing. -->
+      <div id="analyzeForm" class="ticker-form" role="search">
+        <div class="asset-toggle" role="group" aria-label="Asset type">
+          <button type="button" class="asset-btn is-active" data-asset="stock">Stock</button>
+          <button type="button" class="asset-btn" data-asset="fund">Fund / ETF</button>
+          <button type="button" class="asset-btn" data-asset="bond">Bond</button>
+        </div>
+        <div class="ticker-input-wrap">
+          <input id="tickerInput" type="text" placeholder="Ticker — e.g. AAPL" maxlength="12" spellcheck="false" autocomplete="off" autocapitalize="characters" aria-label="Ticker symbol">
+          <button type="button" id="analyzeBtn" class="btn-analyze">Analyze</button>
+        </div>
+        <button type="button" id="keysBtn" class="btn sm keys-btn" aria-expanded="false" aria-controls="keysPanel"><span class="kdot"></span>Data keys</button>
+      </div>
+    </div>
+    <div id="keysPanel" class="keys-panel" hidden>
+      <div class="keys-inner">
+        <p class="keys-intro"><b>Optional.</b> Ledger works fully without keys. With your own free key, <b>Alpha Vantage</b> fills fund expense ratio, net assets, holdings and turnover automatically, and double-checks each stock's EPS against a second source (filling it when SEC has none). <b>Twelve Data</b> is a backup price source if the main one is down. Keys are saved only in this browser (not encrypted), sent only to that provider, and never written into this file. Free keys: <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noopener">alphavantage.co</a> · <a href="https://twelvedata.com/pricing" target="_blank" rel="noopener">twelvedata.com</a>. Free tiers have small daily request limits, so responses are cached for a day.</p>
+        <div class="keys-row"><label for="avKey">Alpha Vantage key</label><input id="avKey" type="password" autocomplete="off" spellcheck="false" placeholder="not set"><span class="key-state" id="avState"></span></div>
+        <div class="keys-row"><label for="tdKey">Twelve Data key</label><input id="tdKey" type="password" autocomplete="off" spellcheck="false" placeholder="not set"><span class="key-state" id="tdState"></span></div>
+        <div class="keys-actions">
+          <button type="button" id="keysSave" class="btn sm primary">Save keys</button>
+          <button type="button" id="keysShow" class="btn sm">Show</button>
+          <button type="button" id="keysClear" class="btn sm">Remove both</button>
+        </div>
+      </div>
+    </div>
+    <div id="fetchStatus" class="fetch-status" hidden></div>
+  </header>
+
+  <div id="watchlistStrip" class="watchlist-strip" hidden></div>
+
+  <section id="emptyState" class="empty-state">
+    <div class="empty-inner">
+      <p class="empty-eyebrow">Graham · Buffett · Lynch, synthesized</p>
+      <h1>Type a ticker. Get a verdict.</h1>
+      <p class="empty-body">Enter any US stock, ETF, mutual fund, or bond-fund ticker above. Ledger pulls fundamentals from SEC EDGAR filings, prices and dividend history from Yahoo Finance, and Treasury yields from the US Treasury, then runs the Graham Number, Graham Revised, net-net, Lynch fair value, owner-earnings DCF, and all three checklists. Anything it can't fetch is flagged as unavailable — never silently zero-filled.</p>
+      <div class="empty-examples">
+        <span>Try:</span>
+        <button type="button" class="chip" data-example="stock:AAPL">AAPL</button>
+        <button type="button" class="chip" data-example="stock:NKE">NKE</button>
+        <button type="button" class="chip" data-example="stock:KO">KO</button>
+        <button type="button" class="chip" data-example="fund:VOO">VOO</button>
+        <button type="button" class="chip" data-example="bond:BND">BND</button>
+      </div>
+      <p class="empty-note">Every auto-filled field stays editable, and every calculation also works from typed-in numbers alone.</p>
+    </div>
+  </section>
+
+  <div id="mainApp" hidden>
+    <nav id="tabNav" class="tab-nav" aria-label="Report sections"></nav>
+    <main id="tabContent" class="tab-content"></main>
+  </div>
+
+  <footer class="app-footer">
+    <p>Educational decision-support tool only — not investment, financial, legal, or tax advice. Formulas are simplified teaching versions of Graham, Buffett, and Lynch's methods and are assumption-sensitive, especially the DCF, Graham Revised, and PEG. Live data comes from free public sources and can lag, mismatch fiscal periods, or fail — verify every figure against a primary source before acting, and see the Inputs &amp; Sources tab for what fed each number.</p>
+    <p>Data path: SEC EDGAR and Yahoo Finance block direct browser requests (no CORS headers), so those two are requested through the free, keyless <a href="https://jina.ai/reader/" target="_blank" rel="noopener">r.jina.ai</a> reader relay. That relay sees which tickers you look up. US Treasury yields are fetched directly from treasury.gov. No API keys, accounts, or backend are required; optional keys you add under “Data keys” go directly to Alpha Vantage / Twelve Data, never through the relay.</p>
+  </footer>
+
+</div>
+
+<script>
+'use strict';

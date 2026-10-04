@@ -1,0 +1,7 @@
+.DS_Store
+node_modules/
+*.log
+# Never commit API keys or downloaded data
+.env
+*.key
+facts/
