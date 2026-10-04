@@ -331,6 +331,38 @@ function buildFundamentals(facts, todayISO) {
         equity: v.totalEquity, roe: v.netIncome != null && v.totalEquity > 0 ? v.netIncome / v.totalEquity : null, dividends: v.dividendsPaid });
     }
     v.history = hist;
+
+    // ---- cyclicality: value cyclicals on mid-cycle (normalized) earnings, not the current year ----
+    // Backtest (Oct 2025 → Oct 2026): memory/storage makers valued on trough earnings were rated
+    // "avoid/overvalued" and then rose 200–1,200%. Lynch: a cyclical's current-year P/E misleads.
+    // Rule, chosen from 10-yr operating margins of known cyclicals vs. steady businesses:
+    //   cyclical if (≥5 fiscal years) operating margin fell ≥10 points AND by at least half from an
+    //   earlier peak, or turned negative after a profitable year.
+    const yrs = hist.filter(h => !h.ttm && h.revenue > 0 && h.ebit != null).reverse(); // oldest → newest
+    if (yrs.length >= 5) {
+      const m = yrs.map(h => h.ebit / h.revenue);
+      let reason = null, peak = m[0];
+      for (let i = 1; i < m.length && !reason; i++) {
+        if (peak > 0 && m[i] <= peak - Math.max(0.10, peak * 0.5)) reason = `operating margin fell from ${(peak * 100).toFixed(0)}% to ${(m[i] * 100).toFixed(0)}% (FY ${yrs[i].end})`;
+        else if (m[i] < 0 && m.slice(0, i).some(x => x > 0.02)) reason = `operating margin turned negative (${(m[i] * 100).toFixed(0)}%) in FY ${yrs[i].end} after profitable years`;
+        peak = Math.max(peak, m[i]);
+      }
+      if (reason) {
+        const avg = m.reduce((a, b) => a + b, 0) / m.length;
+        const cy = { years: m.length, from: yrs[0].end, to: yrs[yrs.length - 1].end, reason, avgMargin: avg, minMargin: Math.min(...m), maxMargin: Math.max(...m),
+          currentMargin: v.revenue > 0 && v.ebit != null ? v.ebit / v.revenue : null };
+        const pt = flows.pretaxIncome, tx = flows.incomeTaxExpense;
+        cy.taxRate = pt && tx && pt.val > 0 && pt.end === tx.end ? Math.min(0.30, Math.max(0.10, tx.val / pt.val)) : 0.21;
+        const ni = flows.netIncome, eps = flows.epsDiluted;
+        const shares = ni && eps && ni.val > 0 && eps.val > 0 && ni.end === eps.end ? ni.val / eps.val : (wadLatest?.val ?? v.dilutedShares);
+        if (v.revenue > 0 && avg > 0 && shares > 0) {
+          cy.normalizedNetIncome = avg * v.revenue * (1 - cy.taxRate);
+          cy.normalizedEPS = cy.normalizedNetIncome / shares;
+        }
+        v.cyclical = cy;
+        warnings.push(`Cyclical business: ${reason}. Over ${m.length} years margins ranged ${(cy.minMargin * 100).toFixed(0)}% to ${(cy.maxMargin * 100).toFixed(0)}% (average ${(avg * 100).toFixed(0)}%)${cy.normalizedEPS != null ? `. Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about ${cur === 'USD' ? '$' : ''}${cy.normalizedEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur}` : ''}.`);
+      }
+    }
   }
 
   // Staleness: a company that stopped filing (or switched to tags we don't map) shows up here.

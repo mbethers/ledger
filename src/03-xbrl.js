@@ -34,23 +34,37 @@ const XBRL = {
       const early = s.filter(p => p.filed <= earlyFiled), late = s.filter(p => p.filed >= lateFiled);
       return early.some(e => late.some(l => e.val > 0 && Math.abs((l.val / e.val) / r - 1) < 0.05));
     };
+    // Real splits use clean ratios. Snapping to these rejects restatement noise (and makes
+    // NKE's measured "1.99" an exact 2).
+    const CLEAN = [1.25, 1.5, 2, 2.5, 3, 4, 5, 6, 7, 8, 10, 15, 20, 25, 30, 40, 50];
+    const snap = (r) => {
+      const cands = r >= 1 ? CLEAN : CLEAN.map(c => 1 / c);
+      const best = cands.reduce((b, c) => (Math.abs(r / c - 1) < Math.abs(r / b - 1) ? c : b));
+      return Math.abs(r / best - 1) <= 0.03 ? best : null;
+    };
     const events = [];
     for (const g of groups.values()) {
       if (g.length < 2) continue;
       g.sort((a, b) => (a.filed < b.filed ? -1 : 1));
       for (let i = 1; i < g.length; i++) {
+        // EPS is reported to the cent, so tiny values give meaningless ratios (TSLA's $0.09 → $0.02
+        // read as a "4.5x split"). Only compare figures large enough for rounding not to matter.
+        if (Math.abs(g[i].val) < 0.25 || Math.abs(g[i - 1].val) < 0.25) continue;
         const r = g[i - 1].val / g[i].val;
-        if (!(r > 1.4 || (r > 0 && r < 0.7))) continue; // ordinary restatements move EPS by a few %, splits by ≥1.5x
-        if (!sharesConfirm(g[i].start, g[i].end, g[i - 1].filed, g[i].filed, r)) continue;
+        if (!(r > 1.2 || (r > 0 && r < 0.83))) continue; // ordinary restatements move EPS by a few %
+        const factor = snap(r); if (!factor) continue;
         const before = g[i - 1].filed, after = g[i].filed;
+        const confirmed = sharesConfirm(g[i].start, g[i].end, before, after, factor);
         // The same split is seen from many periods (annual + quarterly comparatives); merge
         // detections whose (last pre-split filing, first restated filing] windows overlap.
-        const ev = events.find(e => Math.abs(e.factor / r - 1) < 0.1 && before < e.after && e.before < after);
-        if (ev) { if (before > ev.before) ev.before = before; if (after < ev.after) ev.after = after; }
-        else events.push({ before, after, factor: r });
+        const ev = events.find(e => e.factor === factor && before < e.after && e.before < after);
+        if (ev) { if (before > ev.before) ev.before = before; if (after < ev.after) ev.after = after; ev.confirmed ||= confirmed; ev.periods.add(`${g[i].start}|${g[i].end}`); }
+        else events.push({ before, after, factor, confirmed, periods: new Set([`${g[i].start}|${g[i].end}`]) });
       }
     }
-    this.splits = events;
+    // Keep a split when share counts confirm it, or — for companies like Alphabet that report share
+    // counts only per share class — when at least two separate periods show the same clean ratio.
+    this.splits = events.filter(e => e.confirmed || e.periods.size >= 2).map(({ before, after, factor }) => ({ before, after, factor }));
     return this.splits;
   },
   // Factor that converts a per-share value filed on `filed` into today's share basis.
