@@ -140,7 +140,8 @@ const XBRL = {
       const priors = pts.filter(p => p.start && Math.abs(dDays(cur.end, p.end) - 365) <= 10 && Math.abs(dDays(p.end, p.start) - len) <= 10);
       if (!priors.length) return;
       const prior = priors.reduce((x, y) => (y.filed > x.filed ? y : x));
-      const cand = { val: a.val + cur.val - prior.val, end: cur.end, basis: 'TTM', tag, fyEnd: fy.end, series: merged };
+      const cand = { val: a.val + cur.val - prior.val, end: cur.end, basis: 'TTM', tag, fyEnd: fy.end, series: merged,
+        ytd: { val: cur.val, prior: prior.val, start: cur.start, end: cur.end } }; // same-length periods, a year apart
       if (cand.end > best.end) best = cand;
     });
     return best;

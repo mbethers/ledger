@@ -982,7 +982,8 @@ const XBRL = {
       const priors = pts.filter(p => p.start && Math.abs(dDays(cur.end, p.end) - 365) <= 10 && Math.abs(dDays(p.end, p.start) - len) <= 10);
       if (!priors.length) return;
       const prior = priors.reduce((x, y) => (y.filed > x.filed ? y : x));
-      const cand = { val: a.val + cur.val - prior.val, end: cur.end, basis: 'TTM', tag, fyEnd: fy.end, series: merged };
+      const cand = { val: a.val + cur.val - prior.val, end: cur.end, basis: 'TTM', tag, fyEnd: fy.end, series: merged,
+        ytd: { val: cur.val, prior: prior.val, start: cur.start, end: cur.end } }; // same-length periods, a year apart
       if (cand.end > best.end) best = cand;
     });
     return best;
@@ -1094,6 +1095,30 @@ function detectReporting(facts) {
 //   values[f]  number, or null when it genuinely couldn't be determined
 //   source[f]  human-readable provenance for the audit trail
 //   why[f]     reason a field is null (shown in the UI instead of a blank or a fake 0)
+// Where a cyclical is heading: revenue growth and operating-margin change over the latest year-to-date
+// vs. the same months a year earlier (or the last two fiscal years when no 10-Q follows the 10-K).
+// The 10-yr average hides turns — in Oct 2025 MU's average margin was 17%, but the latest year had
+// gone from 5% to 26% on +49% revenue. Research only — computed, not shown or used in valuation:
+// tools/cycle-backtest.js (33 cyclicals, Apr/Oct 2017–2025) found "upswing" stocks lagged the S&P
+// (median −8.7 pts, 38% beat) in every year but 2025. By the time a turn shows in filings it's priced in.
+function cycleMomentum(flows, yrs) {
+  const r = flows.revenue, e = flows.ebit;
+  let cur, prev, basis;
+  if (r?.ytd && e?.ytd && r.ytd.end === e.ytd.end && r.ytd.prior > 0 && r.ytd.val > 0) {
+    cur = { rev: r.ytd.val, ebit: e.ytd.val }; prev = { rev: r.ytd.prior, ebit: e.ytd.prior };
+    basis = `year to date through ${r.ytd.end} vs. a year earlier`;
+  } else if (yrs.length >= 2) {
+    const a = yrs[yrs.length - 1], b = yrs[yrs.length - 2];
+    cur = { rev: a.revenue, ebit: a.ebit }; prev = { rev: b.revenue, ebit: b.ebit };
+    basis = `FY ${a.end} vs. FY ${b.end}`;
+  } else return null;
+  const revGrowth = cur.rev / prev.rev - 1, margin = cur.ebit / cur.rev, marginChange = margin - prev.ebit / prev.rev;
+  const phase = revGrowth >= CYCLE.upRev && marginChange >= CYCLE.upMargin ? 'upswing'
+    : revGrowth <= CYCLE.downRev || marginChange <= CYCLE.downMargin ? 'downswing' : 'steady';
+  return { revGrowth, margin, marginChange, basis, phase };
+}
+const CYCLE = { upRev: 0.20, upMargin: 0.05, downRev: -0.10, downMargin: -0.05 };
+
 function buildFundamentals(facts, todayISO) {
   const v = {}, source = {}, why = {}, warnings = [];
   const today = todayISO || new Date().toISOString().slice(0, 10);
@@ -1369,6 +1394,7 @@ function buildFundamentals(facts, todayISO) {
           const cx = yrs.filter(h => h.capex != null);
           if (cx.length >= 3) { cy.capexRatio = cx.reduce((a, h) => a + h.capex / h.revenue, 0) / cx.length; cy.normalizedCapex = cy.capexRatio * v.revenue; }
         }
+        cy.momentum = cycleMomentum(flows, yrs);
         v.cyclical = cy;
         warnings.push(`Cyclical business: ${reason}. Over ${m.length} years margins ranged ${(cy.minMargin * 100).toFixed(0)}% to ${(cy.maxMargin * 100).toFixed(0)}% (average ${(avg * 100).toFixed(0)}%)${cy.normalizedEPS != null ? `. Trailing earnings may be far from mid-cycle; at the average margin × current revenue, EPS would be about ${cur === 'USD' ? '$' : ''}${cy.normalizedEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur} (option on the Summary tab)` : ''}.`);
       }
