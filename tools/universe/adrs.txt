@@ -1,0 +1,24 @@
+# International ADRs screened alongside the S&P 500. Per-share figures use ADR_RATIO in src/02-calculations.js.
+TSM
+ASML
+NVO
+SAP
+TM
+SONY
+BABA
+PDD
+JD
+BIDU
+NTES
+HDB
+IBN
+INFY
+SHEL
+BP
+AZN
+SNY
+NVS
+UL
+DEO
+UMC
+ASX

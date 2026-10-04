@@ -1,0 +1,13 @@
+# Bond funds screened on yield and trailing return (no SEC fundamentals).
+BND
+AGG
+BNDX
+TLT
+IEF
+SHY
+LQD
+HYG
+TIP
+VCIT
+EMB
+MUB
