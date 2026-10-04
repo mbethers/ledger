@@ -487,7 +487,26 @@ async function fetchBenchmark(benchmarkName) {
   return { symbol: sym, r5: r5.val, r10: r10.val, why5: r5.why, why10: r10.why };
 }
 
+// Quiet daily adjusted-close series for research scoring (no fetch-log lines). Cached per session.
+const _adjCache = new Map();
+async function fetchAdjSeries(symbol, fromISO) {
+  const key = `${symbol}|${fromISO}`;
+  if (_adjCache.has(key)) return _adjCache.get(key);
+  const p1 = Math.floor(new Date(fromISO).getTime() / 1000) - 7 * 86400, p2 = Math.floor(Date.now() / 1000) + 86400;
+  const job = Net.json(`https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?period1=${p1}&period2=${p2}&interval=1d`, { relay: true, retries: 1 })
+    .then(data => {
+      const r = data?.chart?.result?.[0]; if (!r?.timestamp) return null;
+      const q = r.indicators?.quote?.[0] || {}, adj = r.indicators?.adjclose?.[0]?.adjclose || [];
+      const rows = [];
+      r.timestamp.forEach((t, i) => { const c = ok(adj[i]) ? adj[i] : q.close?.[i]; if (ok(c)) rows.push({ date: new Date(t * 1000).toISOString().slice(0, 10), adj: c }); });
+      return rows.length ? rows : null;
+    }).catch(() => null);
+  _adjCache.set(key, job);
+  return job;
+}
+
 async function analyzeTicker(rawTicker, requestedType) {
+  document.getElementById('researchView').hidden = true;
   const ticker = normalizeTicker(rawTicker);
   const statusEl = document.getElementById('fetchStatus');
   if (!ticker) {

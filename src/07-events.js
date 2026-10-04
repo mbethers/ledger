@@ -116,6 +116,24 @@ document.getElementById('keysBtn').addEventListener('click', () => {
   document.getElementById('keysBtn').setAttribute('aria-expanded', String(!panel.hidden));
   if (!panel.hidden) { document.getElementById('avKey').value = Keys.get('av'); document.getElementById('tdKey').value = Keys.get('td'); }
 });
+// ---- Research view ----
+document.getElementById('researchBtn').addEventListener('click', openResearch);
+document.getElementById('researchView').addEventListener('click', (e) => {
+  const a = e.target.closest('[data-action]')?.dataset.action; if (!a) return;
+  const R = AppState.research;
+  const [cmd, ...rest] = a.split(':'); const arg = rest.join(':');
+  if (cmd === 'research-close') closeResearch();
+  else if (cmd === 'research-filter') { R.filter = +arg; renderResearch(); }
+  else if (cmd === 'research-open') { R.view = 'detail'; R.id = arg; R.open = null; renderResearch(); window.scrollTo(0, 0); }
+  else if (cmd === 'research-back') { R.view = 'list'; renderResearch(); }
+  else if (cmd === 'research-rescore') { R.scores = {}; _adjCache.clear(); scoreAllResearch(); }
+  else if (cmd === 'research-toggle') { R.open = R.open === arg ? null : arg; renderResearch(); }
+  else if (cmd === 'research-ledger') {
+    const [ticker, type] = rest; closeResearch();
+    const at = type === 'etf' || type === 'bond-fund' ? 'fund' : 'stock';
+    setAssetType(at); document.getElementById('tickerInput').value = ticker; analyzeTicker(ticker, at);
+  }
+});
 document.getElementById('keysShow').addEventListener('click', (e) => {
   const inputs = [document.getElementById('avKey'), document.getElementById('tdKey')];
   const show = inputs[0].type === 'password';
