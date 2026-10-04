@@ -18,6 +18,10 @@ Optional keys are entered under **Data keys** in the app and stored only in that
 
 Anything that can't be fetched is shown as **Unavailable** with the reason. Missing data is never filled with 0.
 
+**Earnings quality.** If 25% or more of pre-tax income is non-operating (investment gains, asset sales), or net income is more than double operating cash flow, the Summary tab shows a warning, lowers the confidence score, and offers a one-click switch to value the stock on estimated core earnings instead.
+
+**Foreign companies.** Filers that report under IFRS or in another currency (e.g. TSMC in Taiwan dollars) are read and converted to US dollars at the live exchange rate, with per-share figures scaled to the US-listed ADR using a built-in ratio list (`ADR_RATIO` in `src/02-calculations.js`).
+
 ## Making changes
 
 The app is still delivered as one file, but it's edited as parts in `src/` and assembled by a build script:
@@ -51,6 +55,8 @@ LEDGER_CONTACT=you@example.com node tools/check-extraction.js NKE AAPL KO PLPC B
 
 - **AAA corporate bond yield** isn't published anywhere free that a browser can read, so it's a dated default you should update.
 - **Bond-fund yield-to-maturity and duration** come only from the fund's fact sheet, so you enter them yourself.
+- **Some foreign filers' newest annual reports aren't in SEC's machine-readable data** (TSMC's runs through FY2024 as of Oct 2026); the app flags figures over a year old.
+- **ADRs not in the built-in ratio list** are assumed to be 1 ADR = 1 share, with a warning.
 - **Companies that don't use standard XBRL tags** (Berkshire Hathaway, for example) show EPS and some other fields as unavailable, with the reason.
 - **SEC's machine-readable history starts around 2009**, so Graham's 20-year dividend test can show as UNVERIFIED rather than PASS.
 - **The r.jina.ai relay is a free third-party service.** It can see which tickers are looked up, and it limits how many requests you can make in a short period. If it goes down, SEC and Yahoo data become unavailable and the app says so.

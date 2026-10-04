@@ -34,8 +34,24 @@ document.querySelectorAll('[data-example]').forEach(btn => btn.addEventListener(
 
 // Delegated handlers (set once — not re-bound on every render).
 document.getElementById('tabContent').addEventListener('click', (e) => {
-  const b = e.target.closest('.range-btn'); if (!b) return;
-  AppState.chartRange = b.dataset.range; renderApp();
+  const b = e.target.closest('.range-btn');
+  if (b) { AppState.chartRange = b.dataset.range; renderApp(); return; }
+  // Switch the valuation between reported and core (ex non-operating) earnings.
+  const a = e.target.closest('[data-action="core-earnings"], [data-action="reported-earnings"]');
+  const s = AppState.stock, eq = s?.earningsQuality;
+  if (!a || !eq) return;
+  const src = AppState.fieldSource.stock, det = AppState.sourceDetail.stock;
+  if (a.dataset.action === 'core-earnings') {
+    s.epsTTM = eq.coreEPS; s.netIncome = eq.coreNetIncome; s.coreEarningsApplied = true;
+    src.epsTTM = src.netIncome = 'manual';
+    det.epsTTM = `Core earnings estimate (reported ${fmt.plain(eq.reportedEPS)} minus non-operating income after tax)`;
+    det.netIncome = 'Core earnings estimate (reported net income minus non-operating income after tax)';
+  } else {
+    s.epsTTM = eq.reportedEPS; s.netIncome = eq.reportedNetIncome; s.coreEarningsApplied = false;
+    src.epsTTM = src.netIncome = 'fetched';
+    det.epsTTM = 'Reported diluted EPS (SEC EDGAR)'; det.netIncome = 'Reported net income (SEC EDGAR)';
+  }
+  recompute();
 });
 let resizeTimer = null;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { try { mountPriceChart(); } catch (e) { /* chart is optional */ } }, 150); });

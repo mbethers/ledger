@@ -49,6 +49,12 @@ const ETF_REFERENCE = {
   VTV: { name: 'Vanguard Value ETF', benchmark: 'CRSP US Large Cap Value', expenseRatio: 0.0004, type: 'Index ETF' },
 };
 
+// ADR → ordinary-share ratios for common foreign listings (1 ADR = N ordinary shares). Filings report
+// per-share figures per ordinary share; the US price is per ADR, so per-share values are scaled by N.
+// Unlisted foreign filers are assumed 1:1 and flagged. Verify against the depositary bank if in doubt.
+const ADR_RATIO = { TSM: 5, UMC: 5, ASX: 2, BABA: 8, BIDU: 8, JD: 2, PDD: 4, NTES: 5, TM: 10, BP: 6, SHEL: 2, AZN: 0.5, SNY: 0.5,
+  HDB: 3, IBN: 2, DEO: 4, NVO: 1, ASML: 1, SAP: 1, NVS: 1, UL: 1, INFY: 1, SONY: 1 };
+
 // Benchmarks with a free total-return series on Yahoo (so excess return can be computed).
 const BENCHMARK_TR = { 'S&P 500': '^SP500TR' };
 
@@ -278,6 +284,10 @@ function computeValuation(inp) {
     return 'OVERVALUED — price exceeds intrinsic value';
   })();
 
+  // Earnings-quality flag (set during data extraction): reported profit leans on one-off, non-operating
+  // items or isn't backed by cash. The verdict stands on reported numbers unless the user switches to
+  // core earnings, but it must not look as trustworthy as a clean set of figures.
+  out.qualityFlag = !!inp.earningsQuality && !inp.coreEarningsApplied;
   out.completenessFields = ['price', 'dilutedShares', 'revenue', 'ebit', 'netIncome', 'da', 'epsTTM', 'cash', 'totalCurrentAssets',
     'totalCurrentLiabilities', 'totalDebt', 'totalLiabilities', 'totalEquity', 'operatingCashFlow', 'capex', 'revCAGR5', 'epsCAGR5',
     'avgROE', 'avgROIC', 'moat', 'management', 'simplicity', 'accountingQuality', 'expectedGrowth', 'discountRate', 'aaaYield', 'requiredMOS'];
@@ -288,7 +298,7 @@ function computeValuation(inp) {
     const part2 = 0.3 * Math.min(100, (out.filledCount / out.completenessFields.length) * 100);
     const part3 = ok(inp.revCAGR5) && ok(inp.epsCAGR5) ? 0.2 * Math.max(0, 100 - Math.abs(inp.revCAGR5 - inp.epsCAGR5) * 100) : 0;
     const part4 = ok(inp.moat) ? 0.1 * (inp.moat / 5) * 100 : 0;
-    return Math.round(part1 + part2 + part3 + part4);
+    return Math.max(0, Math.round(part1 + part2 + part3 + part4) - (out.qualityFlag ? 15 : 0));
   })();
   return out;
 }

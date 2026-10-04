@@ -14,16 +14,20 @@ const XBRL = {
   // periods that were never re-reported keep pre-split values — which wrecks multi-year EPS
   // growth (AAPL's 10-yr EPS CAGR reads negative across its 2020 4:1 split). Detect each split
   // from a period reported at two different scales, then rescale everything filed before it.
-  detectSplits(facts) {
-    const tax = facts?.facts?.['us-gaap'] || {};
+  // Works for any taxonomy/currency: callers pass the EPS and share-count tags of the filer's standard.
+  detectSplits(facts, { taxonomy = 'us-gaap', perShareUnit = 'USD/shares',
+    epsTags = ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
+    shareTags = ['WeightedAverageNumberOfDilutedSharesOutstanding', 'WeightedAverageNumberOfSharesOutstandingBasic'] } = {}) {
+    this.splitTaxonomy = taxonomy;
+    const tax = facts?.facts?.[taxonomy] || {};
     const pts = [];
-    for (const t of ['EarningsPerShareDiluted', 'EarningsPerShareBasic']) for (const p of tax[t]?.units?.['USD/shares'] || []) pts.push({ ...p, tag: t });
+    for (const t of epsTags) for (const p of tax[t]?.units?.[perShareUnit] || []) pts.push({ ...p, tag: t });
     const groups = new Map();
     for (const p of pts) { if (!p.val) continue; const k = `${p.tag}|${p.start}|${p.end}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
     // Share counts for the same period, by filing date — a genuine split rescales these too,
     // which separates real splits from earnings restatements and one-off tagging errors.
     const shareByPeriod = new Map();
-    for (const t of ['WeightedAverageNumberOfDilutedSharesOutstanding', 'WeightedAverageNumberOfSharesOutstandingBasic'])
+    for (const t of shareTags)
       for (const p of tax[t]?.units?.shares || []) { const k = `${p.start}|${p.end}`; if (!shareByPeriod.has(k)) shareByPeriod.set(k, []); shareByPeriod.get(k).push(p); }
     const sharesConfirm = (start, end, earlyFiled, lateFiled, r) => {
       const s = shareByPeriod.get(`${start}|${end}`) || [];
@@ -60,8 +64,8 @@ const XBRL = {
       if (!pts) return;
       for (const p of pts) {
         let val = p.val;
-        if (this.splits.length && unit === 'USD/shares') val = val / this.splitFactor(p.filed);
-        else if (this.splits.length && unit === 'shares' && taxonomy === 'us-gaap') val = val * this.splitFactor(p.filed);
+        if (this.splits.length && unit.endsWith('/shares')) val = val / this.splitFactor(p.filed);
+        else if (this.splits.length && unit === 'shares' && taxonomy === this.splitTaxonomy) val = val * this.splitFactor(p.filed);
         out.push({ ...p, val, tag, pri });
       }
     });

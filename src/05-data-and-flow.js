@@ -48,6 +48,9 @@ const Keys = {
   get(name) { return this._k[name] || ''; },
   async set(av, td) { this._k = { av: (av || '').trim(), td: (td || '').trim() }; await Store.set('api_keys', this._k); },
 };
+const FOREIGN_MONEY_FIELDS = ['revenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid', 'cash', 'shortTermInvestments',
+  'totalCurrentAssets', 'totalAssets', 'totalCurrentLiabilities', 'longTermDebt', 'totalDebt', 'totalLiabilities', 'goodwill', 'intangibles', 'totalEquity',
+  'operatingCashFlow', 'capex', 'sbc'];
 const num = (x) => { const v = parseFloat(x); return Number.isFinite(v) ? v : null; };
 
 // Alpha Vantage: direct (it sends CORS headers), paced, and cached for a day because the free
@@ -112,15 +115,62 @@ const Fetcher = {
     let facts;
     try { facts = await Net.json(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { relay: true, timeoutMs: 60000 }); }
     catch (e) { this.note('err', `SEC EDGAR financial statements request failed: ${e.message}`); return null; }
-    if (!facts?.facts?.['us-gaap']) { this.note('err', `SEC returned no us-gaap financial data for ${ticker} (IFRS filers and some trusts don't use it).`); return null; }
+    if (!facts?.facts?.['us-gaap'] && !facts?.facts?.['ifrs-full']) { this.note('err', `SEC has no machine-readable financial statements (US GAAP or IFRS) for ${ticker}.`); return null; }
     const s = await subs;
     return { facts, cik, title, sector: s?.sicDescription || null };
+  },
+
+  // USD per 1 unit of `cur`, from Yahoo's FX quote (e.g. TWDUSD=X).
+  async fetchFx(cur) {
+    const data = await Net.json(`https://query1.finance.yahoo.com/v8/finance/chart/${cur}USD=X?range=5d&interval=1d`, { relay: true });
+    const m = data?.chart?.result?.[0]?.meta;
+    if (!ok(m?.regularMarketPrice) || m.regularMarketPrice <= 0) throw new Error(`no ${cur}→USD rate returned`);
+    return { rate: m.regularMarketPrice, asOf: m.regularMarketTime ? new Date(m.regularMarketTime * 1000).toISOString().slice(0, 10) : null };
+  },
+
+  // Foreign filers report in their own currency, per ordinary share. Convert money to USD at today's
+  // rate and per-share figures to per-ADR, so they line up with the US-dollar ADR price.
+  async convertForeign(r, ticker) {
+    const v = r.values, cur = v.currency || 'USD';
+    const ratio = ADR_RATIO[ticker] ?? 1;
+    if (cur === 'USD' && ratio === 1) {
+      if (v.foreignFiler) r.warnings.push(`${ticker} files as a foreign company, and its ADR ratio isn't in the built-in list, so 1 ADR = 1 share is assumed. If one ADR represents several shares, EPS and P/E are off by that factor — check the depositary bank's ratio.`);
+      return r;
+    }
+    let fx = { rate: 1, asOf: null };
+    if (cur !== 'USD') {
+      try { fx = await this.fetchFx(cur); }
+      catch (e) {
+        const reason = `reported in ${cur}; currency conversion failed (${e.message})`;
+        for (const f of [...FOREIGN_MONEY_FIELDS, 'epsTTM']) if (v[f] != null) { v[f] = null; r.why[f] = reason; delete r.source[f]; }
+        v.history = []; v.earningsQuality = null;
+        r.warnings.push(`Couldn't convert ${cur} figures to US dollars (${e.message}) — money and per-share fields are marked unavailable rather than shown in the wrong currency.`);
+        return r;
+      }
+    }
+    const note = `${cur !== 'USD' ? ` · converted from ${cur} at ${fx.rate.toPrecision(4)} USD/${cur}${fx.asOf ? ` (${fx.asOf})` : ''}` : ''}`;
+    const adrNote = ratio !== 1 ? ` · per ADR (1 ADR = ${ratio} ordinary shares)` : '';
+    for (const f of FOREIGN_MONEY_FIELDS) if (ok(v[f])) { v[f] *= fx.rate; if (r.source[f]) r.source[f] += note; }
+    if (ok(v.epsTTM)) { v.epsTTM *= fx.rate * ratio; if (r.source.epsTTM) r.source.epsTTM += note + adrNote; }
+    if (ok(v.dilutedShares)) { v.dilutedShares /= ratio; if (r.source.dilutedShares) r.source.dilutedShares += ratio !== 1 ? ` · in ADR equivalents (÷ ${ratio})` : ''; }
+    for (const h of v.history || []) {
+      for (const k of ['revenue', 'grossProfit', 'costOfRevenue', 'ebit', 'pretax', 'interest', 'netIncome', 'ocf', 'capex', 'fcf', 'equity', 'dividends']) if (ok(h[k])) h[k] *= fx.rate;
+      if (ok(h.eps)) h.eps *= fx.rate * ratio;
+    }
+    const eq = v.earningsQuality;
+    if (eq) {
+      for (const k of ['nonOperating', 'coreNetIncome', 'reportedNetIncome']) if (ok(eq[k])) eq[k] *= fx.rate;
+      for (const k of ['coreEPS', 'reportedEPS']) if (ok(eq[k])) eq[k] *= fx.rate * ratio;
+    }
+    v.convertedFrom = cur !== 'USD' ? { currency: cur, rate: fx.rate, asOf: fx.asOf } : null; v.adrRatio = ratio;
+    r.warnings.push(`Converted from ${cur} to US dollars at ${fx.rate.toPrecision(4)} USD per ${cur}${fx.asOf ? ` (${fx.asOf})` : ''}${ratio !== 1 ? `; per-share figures are per ADR (1 ADR = ${ratio} ordinary shares)` : ''}. Historical figures use today's rate, so growth rates and margins are unaffected but past dollar amounts are approximate.`);
+    return r;
   },
 
   async fetchStockFundamentals(ticker) {
     const bundle = await this.fetchCompanyFacts(ticker);
     if (!bundle) return { values: {}, source: {}, why: {}, warnings: [], failed: true };
-    const r = buildFundamentals(bundle.facts);
+    const r = await this.convertForeign(buildFundamentals(bundle.facts), ticker);
     r.values.companyName = bundle.title; r.source.companyName = `SEC EDGAR · CIK ${bundle.cik}`;
     if (bundle.sector) { r.values.sector = bundle.sector; r.source.sector = 'SEC EDGAR · SIC description'; }
     const core = ['revenue', 'netIncome', 'epsTTM', 'totalEquity', 'dilutedShares', 'totalCurrentAssets', 'totalLiabilities', 'operatingCashFlow', 'capex', 'da', 'ebit'];
@@ -463,12 +513,29 @@ async function analyzeTicker(rawTicker, requestedType) {
       built = applyBondDefaults(quote, tsy, ticker);
     }
 
+    // Per-share sanity check for foreign listings: a wrong ADR ratio or currency shows up as an absurd P/E.
+    if (type === 'stock' && built.inp.foreignFiler && ok(built.inp.price) && ok(built.inp.epsTTM) && built.inp.epsTTM > 0) {
+      const pe = built.inp.price / built.inp.epsTTM;
+      if (pe < 2 || pe > 300) Fetcher.note('warn', `Implied P/E of ${pe.toFixed(1)} looks implausible for a foreign listing — the ADR ratio or currency conversion may be off. Check EPS on the Inputs & Sources tab.`);
+    }
+
     // Keep anything the user typed in on a previous run of this ticker — the UI promises that.
     if (prev && prev.assetType === type && prev[type]) {
       const prevSrc = prev.fieldSource?.[type] || {};
       let kept = 0;
-      for (const [f, s] of Object.entries(prevSrc)) if (s === 'manual' && prev[type][f] != null && f in built.inp) { built.inp[f] = prev[type][f]; built.src[f] = 'manual'; delete built.inp.__why[f]; kept++; }
+      const hadCore = !!prev[type].coreEarningsApplied; // core-earnings figures are re-derived from fresh data below, not kept
+      for (const [f, s] of Object.entries(prevSrc)) {
+        if (hadCore && (f === 'epsTTM' || f === 'netIncome')) continue;
+        if (s === 'manual' && prev[type][f] != null && f in built.inp) { built.inp[f] = prev[type][f]; built.src[f] = 'manual'; delete built.inp.__why[f]; kept++; }
+      }
       if (kept) Fetcher.note('info', `Kept ${kept} value${kept > 1 ? 's' : ''} you entered by hand last time.`);
+      const eqNow = built.inp.earningsQuality;
+      if (hadCore && eqNow && ok(eqNow.coreEPS) && eqNow.coreEPS > 0) {
+        built.inp.epsTTM = eqNow.coreEPS; built.inp.netIncome = eqNow.coreNetIncome; built.inp.coreEarningsApplied = true;
+        built.src.epsTTM = built.src.netIncome = 'manual';
+        built.detail.epsTTM = `Core earnings estimate (reported ${fmt.plain(eqNow.reportedEPS)} minus non-operating income after tax)`;
+        Fetcher.note('info', 'Still valuing on core earnings, as you chose last time (recalculated from the latest filings).');
+      }
     }
 
     AppState.ticker = ticker; AppState.assetType = type;

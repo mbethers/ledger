@@ -415,6 +415,12 @@ const ETF_REFERENCE = {
   VTV: { name: 'Vanguard Value ETF', benchmark: 'CRSP US Large Cap Value', expenseRatio: 0.0004, type: 'Index ETF' },
 };
 
+// ADR → ordinary-share ratios for common foreign listings (1 ADR = N ordinary shares). Filings report
+// per-share figures per ordinary share; the US price is per ADR, so per-share values are scaled by N.
+// Unlisted foreign filers are assumed 1:1 and flagged. Verify against the depositary bank if in doubt.
+const ADR_RATIO = { TSM: 5, UMC: 5, ASX: 2, BABA: 8, BIDU: 8, JD: 2, PDD: 4, NTES: 5, TM: 10, BP: 6, SHEL: 2, AZN: 0.5, SNY: 0.5,
+  HDB: 3, IBN: 2, DEO: 4, NVO: 1, ASML: 1, SAP: 1, NVS: 1, UL: 1, INFY: 1, SONY: 1 };
+
 // Benchmarks with a free total-return series on Yahoo (so excess return can be computed).
 const BENCHMARK_TR = { 'S&P 500': '^SP500TR' };
 
@@ -644,6 +650,10 @@ function computeValuation(inp) {
     return 'OVERVALUED — price exceeds intrinsic value';
   })();
 
+  // Earnings-quality flag (set during data extraction): reported profit leans on one-off, non-operating
+  // items or isn't backed by cash. The verdict stands on reported numbers unless the user switches to
+  // core earnings, but it must not look as trustworthy as a clean set of figures.
+  out.qualityFlag = !!inp.earningsQuality && !inp.coreEarningsApplied;
   out.completenessFields = ['price', 'dilutedShares', 'revenue', 'ebit', 'netIncome', 'da', 'epsTTM', 'cash', 'totalCurrentAssets',
     'totalCurrentLiabilities', 'totalDebt', 'totalLiabilities', 'totalEquity', 'operatingCashFlow', 'capex', 'revCAGR5', 'epsCAGR5',
     'avgROE', 'avgROIC', 'moat', 'management', 'simplicity', 'accountingQuality', 'expectedGrowth', 'discountRate', 'aaaYield', 'requiredMOS'];
@@ -654,7 +664,7 @@ function computeValuation(inp) {
     const part2 = 0.3 * Math.min(100, (out.filledCount / out.completenessFields.length) * 100);
     const part3 = ok(inp.revCAGR5) && ok(inp.epsCAGR5) ? 0.2 * Math.max(0, 100 - Math.abs(inp.revCAGR5 - inp.epsCAGR5) * 100) : 0;
     const part4 = ok(inp.moat) ? 0.1 * (inp.moat / 5) * 100 : 0;
-    return Math.round(part1 + part2 + part3 + part4);
+    return Math.max(0, Math.round(part1 + part2 + part3 + part4) - (out.qualityFlag ? 15 : 0));
   })();
   return out;
 }
@@ -845,16 +855,20 @@ const XBRL = {
   // periods that were never re-reported keep pre-split values — which wrecks multi-year EPS
   // growth (AAPL's 10-yr EPS CAGR reads negative across its 2020 4:1 split). Detect each split
   // from a period reported at two different scales, then rescale everything filed before it.
-  detectSplits(facts) {
-    const tax = facts?.facts?.['us-gaap'] || {};
+  // Works for any taxonomy/currency: callers pass the EPS and share-count tags of the filer's standard.
+  detectSplits(facts, { taxonomy = 'us-gaap', perShareUnit = 'USD/shares',
+    epsTags = ['EarningsPerShareDiluted', 'EarningsPerShareBasic'],
+    shareTags = ['WeightedAverageNumberOfDilutedSharesOutstanding', 'WeightedAverageNumberOfSharesOutstandingBasic'] } = {}) {
+    this.splitTaxonomy = taxonomy;
+    const tax = facts?.facts?.[taxonomy] || {};
     const pts = [];
-    for (const t of ['EarningsPerShareDiluted', 'EarningsPerShareBasic']) for (const p of tax[t]?.units?.['USD/shares'] || []) pts.push({ ...p, tag: t });
+    for (const t of epsTags) for (const p of tax[t]?.units?.[perShareUnit] || []) pts.push({ ...p, tag: t });
     const groups = new Map();
     for (const p of pts) { if (!p.val) continue; const k = `${p.tag}|${p.start}|${p.end}`; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(p); }
     // Share counts for the same period, by filing date — a genuine split rescales these too,
     // which separates real splits from earnings restatements and one-off tagging errors.
     const shareByPeriod = new Map();
-    for (const t of ['WeightedAverageNumberOfDilutedSharesOutstanding', 'WeightedAverageNumberOfSharesOutstandingBasic'])
+    for (const t of shareTags)
       for (const p of tax[t]?.units?.shares || []) { const k = `${p.start}|${p.end}`; if (!shareByPeriod.has(k)) shareByPeriod.set(k, []); shareByPeriod.get(k).push(p); }
     const sharesConfirm = (start, end, earlyFiled, lateFiled, r) => {
       const s = shareByPeriod.get(`${start}|${end}`) || [];
@@ -891,8 +905,8 @@ const XBRL = {
       if (!pts) return;
       for (const p of pts) {
         let val = p.val;
-        if (this.splits.length && unit === 'USD/shares') val = val / this.splitFactor(p.filed);
-        else if (this.splits.length && unit === 'shares' && taxonomy === 'us-gaap') val = val * this.splitFactor(p.filed);
+        if (this.splits.length && unit.endsWith('/shares')) val = val / this.splitFactor(p.filed);
+        else if (this.splits.length && unit === 'shares' && taxonomy === this.splitTaxonomy) val = val * this.splitFactor(p.filed);
         out.push({ ...p, val, tag, pri });
       }
     });
@@ -1009,26 +1023,90 @@ const XBRL_TAGS = {
   incomeTaxExpense: ['IncomeTaxExpenseBenefit'],
 };
 
+// IFRS equivalents (ifrs-full taxonomy) for foreign filers such as TSMC. Same keys as XBRL_TAGS.
+const IFRS_TAGS = {
+  revenue: ['Revenue', 'RevenueFromContractsWithCustomers'],
+  costOfRevenue: ['CostOfSales'],
+  grossProfit: ['GrossProfit'],
+  ebit: ['ProfitLossFromOperatingActivities'],
+  netIncome: ['ProfitLossAttributableToOwnersOfParent', 'ProfitLoss'],
+  da: ['DepreciationAndAmortisationExpense', 'DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss', 'AdjustmentsForDepreciationAndAmortisationExpense', 'DepreciationExpense'],
+  interestExpense: ['InterestExpense', 'FinanceCosts'],
+  epsDiluted: ['DilutedEarningsLossPerShare', 'BasicEarningsLossPerShare'],
+  dividendsPaid: ['DividendsPaidClassifiedAsFinancingActivities', 'DividendsPaid', 'DividendsPaidToEquityHoldersOfParentClassifiedAsFinancingActivities'],
+  cash: ['CashAndCashEquivalents'],
+  shortTermInvestments: ['CurrentFinancialAssetsAtAmortisedCost', 'CurrentFinancialAssetsAtFairValueThroughOtherComprehensiveIncome', 'ShorttermDepositsNotClassifiedAsCashEquivalents', 'CurrentInvestments'],
+  totalCurrentAssets: ['CurrentAssets'],
+  totalAssets: ['Assets'],
+  totalCurrentLiabilities: ['CurrentLiabilities'],
+  longTermDebtNoncurrent: ['NoncurrentPortionOfNoncurrentBondsIssued', 'LongtermBorrowings', 'NoncurrentPortionOfNoncurrentLoansReceived', 'NoncurrentPortionOfNoncurrentBorrowings', 'NoncurrentBorrowings'],
+  longTermDebtCurrent: ['CurrentBondsIssuedAndCurrentPortionOfNoncurrentBondsIssued', 'CurrentPortionOfLongtermBorrowings', 'CurrentPortionOfNoncurrentBorrowings'],
+  longTermDebtTotal: [],
+  shortTermBorrowings: ['ShorttermBorrowings', 'CurrentBorrowings'],
+  totalLiabilities: ['Liabilities'],
+  liabilitiesAndEquity: ['EquityAndLiabilities'],
+  goodwill: ['Goodwill'],
+  intangibles: ['IntangibleAssetsOtherThanGoodwill'],
+  totalEquity: ['EquityAttributableToOwnersOfParent', 'Equity'],
+  equityInclNCI: ['Equity', 'EquityAttributableToOwnersOfParent'],
+  operatingCashFlow: ['CashFlowsFromUsedInOperatingActivities'],
+  capex: ['PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities', 'PurchaseOfPropertyPlantAndEquipment'],
+  sbc: ['ExpenseFromSharebasedPaymentTransactionsWithEmployees', 'ExpenseFromSharebasedPaymentTransactions'],
+  dilutedShares: ['AdjustedWeightedAverageShares', 'WeightedAverageShares'],
+  pretaxIncome: ['ProfitLossBeforeTax'],
+  incomeTaxExpense: ['IncomeTaxExpenseContinuingOperations'],
+};
+
+// Which accounting standard and currency a filer reports in. Foreign filers often tag a few
+// "convenience translation" USD figures alongside their real currency, so pick the unit with
+// the most balance-sheet history, not simply USD.
+function detectReporting(facts) {
+  const pick = (taxonomy) => {
+    const units = facts?.facts?.[taxonomy]?.Assets?.units || {};
+    let best = null;
+    for (const [unit, pts] of Object.entries(units)) {
+      const latest = pts.reduce((m, p) => (p.end > m ? p.end : m), '');
+      if (!best || pts.length > best.n || (pts.length === best.n && latest > best.latest)) best = { unit, n: pts.length, latest };
+    }
+    return best && { taxonomy, currency: best.unit, latest: best.latest };
+  };
+  const cands = [pick('us-gaap'), pick('ifrs-full')].filter(Boolean).sort((a, b) => (a.latest < b.latest ? 1 : -1));
+  const r = cands[0] || { taxonomy: 'us-gaap', currency: 'USD' };
+  return { ...r, tags: r.taxonomy === 'ifrs-full' ? IFRS_TAGS : XBRL_TAGS };
+}
+
 // Pure: SEC companyfacts JSON → { values, source, why, warnings }.
 //   values[f]  number, or null when it genuinely couldn't be determined
 //   source[f]  human-readable provenance for the audit trail
 //   why[f]     reason a field is null (shown in the UI instead of a blank or a fake 0)
-const fmtBig = (n) => `$${(n / 1e9).toFixed(2)}B`;
 function buildFundamentals(facts, todayISO) {
   const v = {}, source = {}, why = {}, warnings = [];
   const today = todayISO || new Date().toISOString().slice(0, 10);
-  XBRL.detectSplits(facts);
+  const rep = detectReporting(facts), T = rep.tags, cur = rep.currency, taxo = rep.taxonomy;
+  const U = { unit: cur, taxonomy: taxo };
+  // Every lookup below goes through these, so the same logic serves US-GAAP and IFRS in any currency.
+  const X = {
+    ttm: (tags, o = {}) => XBRL.ttm(facts, tags, { ...U, ...o }),
+    annual: (tags, o = {}) => XBRL.annual(facts, tags, { ...U, ...o }),
+    instantAt: (tags, date, o = {}) => XBRL.instantAt(facts, tags, date, { ...U, ...o }),
+    latestInstant: (tags, o = {}) => XBRL.latestInstant(facts, tags, { ...U, ...o }),
+    tagPoints: (tags, unit) => XBRL.tagPoints(facts, tags, unit, taxo),
+  };
+  const fmtBig = (n) => (cur === 'USD' ? `$${(n / 1e9).toFixed(2)}B` : `${(n / 1e9).toFixed(2)}B ${cur}`);
+  v.currency = cur; v.taxonomy = taxo;
+  if (taxo !== 'us-gaap' || cur !== 'USD') warnings.push(`Financial statements are reported under ${taxo === 'ifrs-full' ? 'IFRS' : 'US GAAP'} in ${cur}.`);
+  XBRL.detectSplits(facts, { taxonomy: taxo, perShareUnit: `${cur}/shares`, epsTags: T.epsDiluted, shareTags: T.dilutedShares });
   for (const s of XBRL.splits) warnings.push(`Detected a ${s.factor >= 1 ? `${+s.factor.toFixed(2)}-for-1 stock split` : `1-for-${+(1 / s.factor).toFixed(2)} reverse split`} (between filings of ${s.before} and ${s.after}); older per-share figures were rescaled to today's share basis.`);
   const lbl = (r) => (r.basis === 'TTM' ? `TTM to ${r.end}` : `FY ending ${r.end}`);
-  const tagName = (t) => `us-gaap:${t}`;
+  const tagName = (t) => `${taxo}:${t}`;
 
   // ---- flow (income / cash-flow) items: TTM where 10-Qs allow, else latest fiscal year ----
   const flows = {};
   const flowFields = ['revenue', 'costOfRevenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid',
     'operatingCashFlow', 'capex', 'sbc', 'pretaxIncome', 'incomeTaxExpense'];
-  for (const f of flowFields) flows[f] = XBRL.ttm(facts, XBRL_TAGS[f]);
-  flows.epsDiluted = XBRL.ttm(facts, XBRL_TAGS.epsDiluted, { unit: 'USD/shares' });
-  flows.dilutedShares = XBRL.ttm(facts, XBRL_TAGS.dilutedShares, { unit: 'shares' }); // used only for its annual series
+  for (const f of flowFields) flows[f] = X.ttm(T[f]);
+  flows.epsDiluted = X.ttm(T.epsDiluted, { unit: `${cur}/shares` });
+  flows.dilutedShares = X.ttm(T.dilutedShares, { unit: 'shares' }); // used only for its annual series
 
   const refEnd = (flows.netIncome || flows.epsDiluted || flows.revenue)?.end;
   const setFlow = (field, r, label) => {
@@ -1068,33 +1146,61 @@ function buildFundamentals(facts, todayISO) {
   } else { v.dividendsPaid = 0; source.dividendsPaid = 'SEC EDGAR · no dividend-payment tags in filings → treated as 0 (verify)'; }
   setFlow('sbc', flows.sbc, 'share-based compensation');
 
+  // ---- earnings quality: is reported profit really from the business, and is it backed by cash? ----
+  // Reported net income can be inflated by one-off, non-operating items (e.g. WDC's 2026 mark-to-
+  // market gain on its SanDisk stake, ~2/3 of pre-tax income). The valuation formulas would treat
+  // that as recurring earning power, so flag it and estimate a "core" figure the user can switch to.
+  {
+    const eq = { notes: [] };
+    const pt = flows.pretaxIncome, op = flows.ebit, ni = flows.netIncome, eps = flows.epsDiluted, ocf = flows.operatingCashFlow;
+    if (pt && op && pt.end === op.end && pt.end === refEnd && pt.val > 0) {
+      const nonop = pt.val - op.val, share = nonop / pt.val;
+      if (nonop > 0 && share >= 0.25) {
+        const tx = flows.incomeTaxExpense;
+        const rate = tx && tx.end === pt.end ? Math.min(0.35, Math.max(0, tx.val / pt.val)) : 0.21;
+        eq.nonOperating = nonop; eq.nonOperatingShare = share; eq.taxRate = rate;
+        if (ni && eps && ni.end === refEnd && eps.end === refEnd && ni.val > 0 && eps.val > 0) {
+          eq.coreNetIncome = ni.val - nonop * (1 - rate);
+          eq.coreEPS = eq.coreNetIncome / (ni.val / eps.val); // shares implied by reported NI ÷ EPS
+          eq.reportedEPS = eps.val; eq.reportedNetIncome = ni.val;
+        }
+        eq.notes.push(`${fmtBig(nonop)} of ${fmtBig(pt.val)} pre-tax income (${Math.round(share * 100)}%) is non-operating — investment gains, asset sales or other items outside the core business${eq.coreEPS != null ? `. On operating earnings alone, EPS would be about ${cur === 'USD' ? '$' : ''}${eq.coreEPS.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur} instead of ${cur === 'USD' ? '$' : ''}${eps.val.toFixed(2)}${cur === 'USD' ? '' : ' ' + cur}` : ''}.`);
+      }
+    }
+    if (ni && ocf && ni.end === ocf.end && ni.val > 0 && ocf.val < 0.5 * ni.val) {
+      eq.cashGap = true;
+      eq.notes.push(`Net income (${fmtBig(ni.val)}) is more than double operating cash flow (${fmtBig(ocf.val)}) — profits aren't turning into cash. Common causes: non-cash gains, rising receivables or inventory.`);
+    }
+    if (eq.notes.length) { v.earningsQuality = eq; eq.notes.forEach(n => warnings.push(`Earnings quality: ${n}`)); }
+  }
+
   // ---- balance sheet: everything aligned to the SAME, most recent balance-sheet date ----
-  const anchor = XBRL.latestInstant(facts, XBRL_TAGS.totalAssets) || XBRL.latestInstant(facts, XBRL_TAGS.liabilitiesAndEquity);
+  const anchor = X.latestInstant(T.totalAssets) || X.latestInstant(T.liabilitiesAndEquity);
   const bsDate = anchor?.end;
   const bs = (field, tags, label, { zeroIfMissing = false } = {}) => {
     if (!bsDate) { v[field] = null; why[field] = 'no balance sheet found in XBRL filings'; return null; }
-    const p = XBRL.instantAt(facts, tags, bsDate);
+    const p = X.instantAt(tags, bsDate);
     if (p) { v[field] = p.val; source[field] = `SEC EDGAR · ${tagName(p.tag)} · as of ${bsDate} (${p.form})`; return p; }
     if (zeroIfMissing) { v[field] = 0; source[field] = `SEC EDGAR · not reported on the ${bsDate} balance sheet → 0 (verify)`; return null; }
-    const stale = XBRL.latestInstant(facts, tags);
+    const stale = X.latestInstant(tags);
     if (stale && dDays(bsDate, stale.end) < 400) { v[field] = stale.val; source[field] = `SEC EDGAR · ${tagName(stale.tag)} · as of ${stale.end} ⚠ older than ${bsDate}`; return stale; }
     v[field] = null; why[field] = `${label} not reported on the ${bsDate} balance sheet`; return null;
   };
-  bs('cash', XBRL_TAGS.cash, 'cash & equivalents');
-  bs('shortTermInvestments', XBRL_TAGS.shortTermInvestments, 'short-term investments', { zeroIfMissing: true });
-  bs('totalCurrentAssets', XBRL_TAGS.totalCurrentAssets, 'total current assets');
-  bs('totalAssets', XBRL_TAGS.totalAssets, 'total assets');
-  bs('totalCurrentLiabilities', XBRL_TAGS.totalCurrentLiabilities, 'total current liabilities');
-  bs('goodwill', XBRL_TAGS.goodwill, 'goodwill', { zeroIfMissing: true });
-  bs('intangibles', XBRL_TAGS.intangibles, 'intangibles', { zeroIfMissing: true });
-  bs('totalEquity', XBRL_TAGS.totalEquity, "shareholders' equity");
+  bs('cash', T.cash, 'cash & equivalents');
+  bs('shortTermInvestments', T.shortTermInvestments, 'short-term investments', { zeroIfMissing: true });
+  bs('totalCurrentAssets', T.totalCurrentAssets, 'total current assets');
+  bs('totalAssets', T.totalAssets, 'total assets');
+  bs('totalCurrentLiabilities', T.totalCurrentLiabilities, 'total current liabilities');
+  bs('goodwill', T.goodwill, 'goodwill', { zeroIfMissing: true });
+  bs('intangibles', T.intangibles, 'intangibles', { zeroIfMissing: true });
+  bs('totalEquity', T.totalEquity, "shareholders' equity");
 
   // Total liabilities: reported, else (liabilities + equity) − equity incl. minority interest.
-  const tl = bsDate && XBRL.instantAt(facts, XBRL_TAGS.totalLiabilities, bsDate);
+  const tl = bsDate && X.instantAt(T.totalLiabilities, bsDate);
   if (tl) { v.totalLiabilities = tl.val; source.totalLiabilities = `SEC EDGAR · ${tagName(tl.tag)} · as of ${bsDate}`; }
   else {
-    const le = bsDate && XBRL.instantAt(facts, XBRL_TAGS.liabilitiesAndEquity, bsDate);
-    const eq = bsDate && XBRL.instantAt(facts, XBRL_TAGS.equityInclNCI, bsDate);
+    const le = bsDate && X.instantAt(T.liabilitiesAndEquity, bsDate);
+    const eq = bsDate && X.instantAt(T.equityInclNCI, bsDate);
     if (le && eq) { v.totalLiabilities = le.val - eq.val; source.totalLiabilities = `SEC EDGAR · derived: LiabilitiesAndStockholdersEquity − ${eq.tag} · as of ${bsDate}`; }
     else { v.totalLiabilities = null; why.totalLiabilities = 'total liabilities not reported and could not be derived'; }
   }
@@ -1102,12 +1208,12 @@ function buildFundamentals(facts, todayISO) {
   // Total debt = long-term debt (incl. current portion) + short-term borrowings/commercial paper.
   if (bsDate) {
     const parts = [];
-    const ltTotal = XBRL.instantAt(facts, XBRL_TAGS.longTermDebtTotal, bsDate);
-    const ltNon = XBRL.instantAt(facts, XBRL_TAGS.longTermDebtNoncurrent, bsDate);
-    const ltCur = XBRL.instantAt(facts, XBRL_TAGS.longTermDebtCurrent, bsDate);
+    const ltTotal = X.instantAt(T.longTermDebtTotal, bsDate);
+    const ltNon = X.instantAt(T.longTermDebtNoncurrent, bsDate);
+    const ltCur = X.instantAt(T.longTermDebtCurrent, bsDate);
     if (ltTotal && (!ltNon || ltTotal.val >= ltNon.val)) parts.push(ltTotal);
     else { if (ltNon) parts.push(ltNon); if (ltCur) parts.push(ltCur); }
-    for (const t of XBRL_TAGS.shortTermBorrowings) { const p = XBRL.instantAt(facts, [t], bsDate); if (p) parts.push(p); }
+    for (const t of T.shortTermBorrowings) { const p = X.instantAt([t], bsDate); if (p) parts.push(p); }
     v.longTermDebt = ltNon ? ltNon.val : (ltTotal ? ltTotal.val - (ltCur?.val || 0) : 0);
     source.longTermDebt = ltNon ? `SEC EDGAR · ${tagName(ltNon.tag)} · as of ${bsDate}` : ltTotal ? `SEC EDGAR · derived from ${tagName(ltTotal.tag)} · as of ${bsDate}` : `SEC EDGAR · no long-term debt reported on the ${bsDate} balance sheet → 0 (verify)`;
     v.totalDebt = parts.reduce((s, p) => s + p.val, 0);
@@ -1122,10 +1228,10 @@ function buildFundamentals(facts, todayISO) {
   } else { v.longTermDebt = v.totalDebt = null; why.longTermDebt = why.totalDebt = 'no balance sheet found'; }
 
   // ---- shares: cover-page shares outstanding (most current), else weighted-average diluted ----
-  const dei = XBRL.latestInstant(facts, ['EntityCommonStockSharesOutstanding'], { unit: 'shares', taxonomy: 'dei' });
-  const wad = XBRL.ttm(facts, XBRL_TAGS.dilutedShares, { unit: 'shares' });
+  const dei = X.latestInstant(['EntityCommonStockSharesOutstanding'], { unit: 'shares', taxonomy: 'dei' });
+  const wad = X.ttm(T.dilutedShares, { unit: 'shares' });
   const wadLatest = (() => { // latest weighted-average diluted count from any filing (quarterly included)
-    let best = null; for (const p of XBRL.tagPoints(facts, XBRL_TAGS.dilutedShares, 'shares')) if (p.start && (!best || p.end > best.end)) best = p; return best;
+    let best = null; for (const p of X.tagPoints(T.dilutedShares, 'shares')) if (p.start && (!best || p.end > best.end)) best = p; return best;
   })();
   if (dei && (!wadLatest || (dei.val > 0.85 * wadLatest.val && dei.val < 1.2 * wadLatest.val)) && dDays(today, dei.end) < 500) {
     v.dilutedShares = dei.val; source.dilutedShares = `SEC EDGAR · dei:EntityCommonStockSharesOutstanding · as of ${dei.end} (${dei.form} cover page)`;
@@ -1136,7 +1242,7 @@ function buildFundamentals(facts, todayISO) {
 
   // ---- multi-year derived figures (annual series keyed by period end) ----
   const revS = flows.revenue?.series, niS = flows.netIncome?.series, epsS = flows.epsDiluted?.series;
-  const eqS = XBRL.annual(facts, XBRL_TAGS.totalEquity, { instant: true });
+  const eqS = X.annual(T.totalEquity, { instant: true });
   const setDerived = (field, r, srcText) => { v[field] = r.val; if (r.val == null) { why[field] = r.why; if (r.neg) v[field + 'Neg'] = true; } else source[field] = srcText(r); };
   setDerived('revCAGR5', XBRL.cagr(revS, 5), r => `SEC EDGAR · revenue CAGR, FY ${r.from} → ${r.to}`);
   const epsSeries = (epsS && epsS.length >= 2) ? epsS : null;
@@ -1155,7 +1261,7 @@ function buildFundamentals(facts, todayISO) {
     source.yearsPositiveEarnings = `SEC EDGAR · ${v.yearsPositiveEarnings} of last ${last10.length} fiscal years (FY ${last10[0].end} → ${last10[last10.length - 1].end}) with net income > 0`;
   } else { v.yearsPositiveEarnings = null; why.yearsPositiveEarnings = 'no annual net-income history'; }
 
-  const divS = XBRL.annual(facts, XBRL_TAGS.dividendsPaid);
+  const divS = X.annual(T.dividendsPaid);
   const niYears = niS ? niS.slice(-20) : [];
   if (niYears.length) {
     // Count fiscal years (on the net-income calendar) in which a dividend payment was reported.
@@ -1180,7 +1286,7 @@ function buildFundamentals(facts, todayISO) {
   } else { v.avgROIC = null; why.avgROIC = 'needs EBIT and equity'; }
 
   if (revS) {
-    const gpS = XBRL.annual(facts, XBRL_TAGS.grossProfit), corS = XBRL.annual(facts, XBRL_TAGS.costOfRevenue);
+    const gpS = X.annual(T.grossProfit), corS = X.annual(T.costOfRevenue);
     const margins = revS.map(r => {
       const g = gpS.find(x => x.end === r.end), c = corS.find(x => x.end === r.end);
       const gp = g ? g.val : c ? r.val - c.val : null;
@@ -1197,8 +1303,8 @@ function buildFundamentals(facts, todayISO) {
   {
     const rows = new Map();
     const add = (series, key) => { for (const p of series || []) { const r = rows.get(p.end) || { end: p.end }; r[key] = p.val; rows.set(p.end, r); } };
-    add(revS, 'revenue'); add(XBRL.annual(facts, XBRL_TAGS.grossProfit), 'grossProfit'); add(XBRL.annual(facts, XBRL_TAGS.costOfRevenue), 'costOfRevenue');
-    add(XBRL.annual(facts, XBRL_TAGS.ebit), 'ebit'); add(XBRL.annual(facts, XBRL_TAGS.pretaxIncome), 'pretax'); add(XBRL.annual(facts, XBRL_TAGS.interestExpense), 'interest');
+    add(revS, 'revenue'); add(X.annual(T.grossProfit), 'grossProfit'); add(X.annual(T.costOfRevenue), 'costOfRevenue');
+    add(X.annual(T.ebit), 'ebit'); add(X.annual(T.pretaxIncome), 'pretax'); add(X.annual(T.interestExpense), 'interest');
     add(niS, 'netIncome'); add(epsS, 'eps'); add(ocfS, 'ocf'); add(capS, 'capex'); add(eqS, 'equity'); add(divS, 'dividends');
     const hist = [...rows.values()].filter(r => r.revenue != null || r.netIncome != null).sort((a, b) => (a.end < b.end ? 1 : -1)).slice(0, 10).map(r => {
       const o = { ...r };
@@ -1218,9 +1324,11 @@ function buildFundamentals(facts, todayISO) {
   }
 
   // Staleness: a company that stopped filing (or switched to tags we don't map) shows up here.
-  if (refEnd && dDays(today, refEnd) > 450) warnings.push(`Most recent income data in SEC XBRL is for the period ending ${refEnd} — over a year old. The company may have stopped filing or been acquired.`);
+  if (refEnd && dDays(today, refEnd) > 450) warnings.push(`Most recent income data in SEC XBRL is for the period ending ${refEnd} — over a year old. Either the company stopped filing (acquired, delisted) or its newer reports haven't been converted into SEC's machine-readable data, which is common for foreign filers. Treat these figures as out of date.`);
   if (bsDate && dDays(today, bsDate) > 450) warnings.push(`Most recent balance sheet in SEC XBRL is dated ${bsDate} — over a year old.`);
   v.periodEnd = refEnd || null; v.balanceSheetDate = bsDate || null;
+  const lastAnnual = (flows.netIncome || flows.revenue)?.series?.slice(-1)[0];
+  v.foreignFiler = !!lastAnnual && /^(20-F|40-F)/.test(lastAnnual.form);
   v.epsBasis = flows.epsDiluted ? lbl(flows.epsDiluted) : null;
   return { values: v, source, why, warnings };
 }
@@ -1276,6 +1384,9 @@ const Keys = {
   get(name) { return this._k[name] || ''; },
   async set(av, td) { this._k = { av: (av || '').trim(), td: (td || '').trim() }; await Store.set('api_keys', this._k); },
 };
+const FOREIGN_MONEY_FIELDS = ['revenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid', 'cash', 'shortTermInvestments',
+  'totalCurrentAssets', 'totalAssets', 'totalCurrentLiabilities', 'longTermDebt', 'totalDebt', 'totalLiabilities', 'goodwill', 'intangibles', 'totalEquity',
+  'operatingCashFlow', 'capex', 'sbc'];
 const num = (x) => { const v = parseFloat(x); return Number.isFinite(v) ? v : null; };
 
 // Alpha Vantage: direct (it sends CORS headers), paced, and cached for a day because the free
@@ -1340,15 +1451,62 @@ const Fetcher = {
     let facts;
     try { facts = await Net.json(`https://data.sec.gov/api/xbrl/companyfacts/CIK${cik}.json`, { relay: true, timeoutMs: 60000 }); }
     catch (e) { this.note('err', `SEC EDGAR financial statements request failed: ${e.message}`); return null; }
-    if (!facts?.facts?.['us-gaap']) { this.note('err', `SEC returned no us-gaap financial data for ${ticker} (IFRS filers and some trusts don't use it).`); return null; }
+    if (!facts?.facts?.['us-gaap'] && !facts?.facts?.['ifrs-full']) { this.note('err', `SEC has no machine-readable financial statements (US GAAP or IFRS) for ${ticker}.`); return null; }
     const s = await subs;
     return { facts, cik, title, sector: s?.sicDescription || null };
+  },
+
+  // USD per 1 unit of `cur`, from Yahoo's FX quote (e.g. TWDUSD=X).
+  async fetchFx(cur) {
+    const data = await Net.json(`https://query1.finance.yahoo.com/v8/finance/chart/${cur}USD=X?range=5d&interval=1d`, { relay: true });
+    const m = data?.chart?.result?.[0]?.meta;
+    if (!ok(m?.regularMarketPrice) || m.regularMarketPrice <= 0) throw new Error(`no ${cur}→USD rate returned`);
+    return { rate: m.regularMarketPrice, asOf: m.regularMarketTime ? new Date(m.regularMarketTime * 1000).toISOString().slice(0, 10) : null };
+  },
+
+  // Foreign filers report in their own currency, per ordinary share. Convert money to USD at today's
+  // rate and per-share figures to per-ADR, so they line up with the US-dollar ADR price.
+  async convertForeign(r, ticker) {
+    const v = r.values, cur = v.currency || 'USD';
+    const ratio = ADR_RATIO[ticker] ?? 1;
+    if (cur === 'USD' && ratio === 1) {
+      if (v.foreignFiler) r.warnings.push(`${ticker} files as a foreign company, and its ADR ratio isn't in the built-in list, so 1 ADR = 1 share is assumed. If one ADR represents several shares, EPS and P/E are off by that factor — check the depositary bank's ratio.`);
+      return r;
+    }
+    let fx = { rate: 1, asOf: null };
+    if (cur !== 'USD') {
+      try { fx = await this.fetchFx(cur); }
+      catch (e) {
+        const reason = `reported in ${cur}; currency conversion failed (${e.message})`;
+        for (const f of [...FOREIGN_MONEY_FIELDS, 'epsTTM']) if (v[f] != null) { v[f] = null; r.why[f] = reason; delete r.source[f]; }
+        v.history = []; v.earningsQuality = null;
+        r.warnings.push(`Couldn't convert ${cur} figures to US dollars (${e.message}) — money and per-share fields are marked unavailable rather than shown in the wrong currency.`);
+        return r;
+      }
+    }
+    const note = `${cur !== 'USD' ? ` · converted from ${cur} at ${fx.rate.toPrecision(4)} USD/${cur}${fx.asOf ? ` (${fx.asOf})` : ''}` : ''}`;
+    const adrNote = ratio !== 1 ? ` · per ADR (1 ADR = ${ratio} ordinary shares)` : '';
+    for (const f of FOREIGN_MONEY_FIELDS) if (ok(v[f])) { v[f] *= fx.rate; if (r.source[f]) r.source[f] += note; }
+    if (ok(v.epsTTM)) { v.epsTTM *= fx.rate * ratio; if (r.source.epsTTM) r.source.epsTTM += note + adrNote; }
+    if (ok(v.dilutedShares)) { v.dilutedShares /= ratio; if (r.source.dilutedShares) r.source.dilutedShares += ratio !== 1 ? ` · in ADR equivalents (÷ ${ratio})` : ''; }
+    for (const h of v.history || []) {
+      for (const k of ['revenue', 'grossProfit', 'costOfRevenue', 'ebit', 'pretax', 'interest', 'netIncome', 'ocf', 'capex', 'fcf', 'equity', 'dividends']) if (ok(h[k])) h[k] *= fx.rate;
+      if (ok(h.eps)) h.eps *= fx.rate * ratio;
+    }
+    const eq = v.earningsQuality;
+    if (eq) {
+      for (const k of ['nonOperating', 'coreNetIncome', 'reportedNetIncome']) if (ok(eq[k])) eq[k] *= fx.rate;
+      for (const k of ['coreEPS', 'reportedEPS']) if (ok(eq[k])) eq[k] *= fx.rate * ratio;
+    }
+    v.convertedFrom = cur !== 'USD' ? { currency: cur, rate: fx.rate, asOf: fx.asOf } : null; v.adrRatio = ratio;
+    r.warnings.push(`Converted from ${cur} to US dollars at ${fx.rate.toPrecision(4)} USD per ${cur}${fx.asOf ? ` (${fx.asOf})` : ''}${ratio !== 1 ? `; per-share figures are per ADR (1 ADR = ${ratio} ordinary shares)` : ''}. Historical figures use today's rate, so growth rates and margins are unaffected but past dollar amounts are approximate.`);
+    return r;
   },
 
   async fetchStockFundamentals(ticker) {
     const bundle = await this.fetchCompanyFacts(ticker);
     if (!bundle) return { values: {}, source: {}, why: {}, warnings: [], failed: true };
-    const r = buildFundamentals(bundle.facts);
+    const r = await this.convertForeign(buildFundamentals(bundle.facts), ticker);
     r.values.companyName = bundle.title; r.source.companyName = `SEC EDGAR · CIK ${bundle.cik}`;
     if (bundle.sector) { r.values.sector = bundle.sector; r.source.sector = 'SEC EDGAR · SIC description'; }
     const core = ['revenue', 'netIncome', 'epsTTM', 'totalEquity', 'dilutedShares', 'totalCurrentAssets', 'totalLiabilities', 'operatingCashFlow', 'capex', 'da', 'ebit'];
@@ -1691,12 +1849,29 @@ async function analyzeTicker(rawTicker, requestedType) {
       built = applyBondDefaults(quote, tsy, ticker);
     }
 
+    // Per-share sanity check for foreign listings: a wrong ADR ratio or currency shows up as an absurd P/E.
+    if (type === 'stock' && built.inp.foreignFiler && ok(built.inp.price) && ok(built.inp.epsTTM) && built.inp.epsTTM > 0) {
+      const pe = built.inp.price / built.inp.epsTTM;
+      if (pe < 2 || pe > 300) Fetcher.note('warn', `Implied P/E of ${pe.toFixed(1)} looks implausible for a foreign listing — the ADR ratio or currency conversion may be off. Check EPS on the Inputs & Sources tab.`);
+    }
+
     // Keep anything the user typed in on a previous run of this ticker — the UI promises that.
     if (prev && prev.assetType === type && prev[type]) {
       const prevSrc = prev.fieldSource?.[type] || {};
       let kept = 0;
-      for (const [f, s] of Object.entries(prevSrc)) if (s === 'manual' && prev[type][f] != null && f in built.inp) { built.inp[f] = prev[type][f]; built.src[f] = 'manual'; delete built.inp.__why[f]; kept++; }
+      const hadCore = !!prev[type].coreEarningsApplied; // core-earnings figures are re-derived from fresh data below, not kept
+      for (const [f, s] of Object.entries(prevSrc)) {
+        if (hadCore && (f === 'epsTTM' || f === 'netIncome')) continue;
+        if (s === 'manual' && prev[type][f] != null && f in built.inp) { built.inp[f] = prev[type][f]; built.src[f] = 'manual'; delete built.inp.__why[f]; kept++; }
+      }
       if (kept) Fetcher.note('info', `Kept ${kept} value${kept > 1 ? 's' : ''} you entered by hand last time.`);
+      const eqNow = built.inp.earningsQuality;
+      if (hadCore && eqNow && ok(eqNow.coreEPS) && eqNow.coreEPS > 0) {
+        built.inp.epsTTM = eqNow.coreEPS; built.inp.netIncome = eqNow.coreNetIncome; built.inp.coreEarningsApplied = true;
+        built.src.epsTTM = built.src.netIncome = 'manual';
+        built.detail.epsTTM = `Core earnings estimate (reported ${fmt.plain(eqNow.reportedEPS)} minus non-operating income after tax)`;
+        Fetcher.note('info', 'Still valuing on core earnings, as you chose last time (recalculated from the latest filings).');
+      }
     }
 
     AppState.ticker = ticker; AppState.assetType = type;
@@ -1910,6 +2085,21 @@ function renderWatchlist() {
 
 const sum = (inp) => { const v = computeValuation(inp); return { val: v, gc: computeGrahamChecklist(inp, v), bc: computeBuffettChecklist(inp, v), lc: computeLynchChecklist({ ...inp, ...AppState.lynch }, v) }; };
 
+// Shown when reported earnings lean on one-off, non-operating items or aren't backed by cash.
+function earningsQualityPanel(inp) {
+  const eq = inp.earningsQuality; if (!eq) return '';
+  const canSwitch = ok(eq.coreEPS) && eq.coreEPS > 0;
+  const action = !canSwitch ? '' : inp.coreEarningsApplied
+    ? `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">Valuing on <b>core earnings</b>: EPS ${fmt.price(eq.coreEPS)} (reported ${fmt.price(eq.reportedEPS)}). <button type="button" class="btn sm" data-action="reported-earnings">Switch back to reported earnings</button></p>`
+    : `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">The verdict below uses reported EPS of ${fmt.price(eq.reportedEPS)}. <button type="button" class="btn sm primary" data-action="core-earnings">Value on core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button></p>`;
+  return `<div class="card gap-panel" style="margin-bottom:18px">
+    <div class="card-head"><h3>Earnings quality warning</h3><span class="card-note">${inp.coreEarningsApplied ? 'core earnings in use' : 'confidence reduced by 15'}</span></div>
+    <div class="card-body"><ul class="gap-list">${eq.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>${action}
+      <p class="note-box" style="margin-top:10px">Core earnings are an estimate: reported profit minus non-operating income, taxed at the company's effective rate${ok(eq.taxRate) ? ` (${(eq.taxRate * 100).toFixed(0)}%)` : ''}. Check the income statement in the latest 10-K/10-Q to see what the non-operating items are — some (like interest on a large cash pile) do recur.</p>
+    </div>
+  </div>`;
+}
+
 /* ---------------- SUMMARY : STOCK ---------------- */
 function renderSummaryStock() {
   const inp = AppState.stock; const { val, gc, bc, lc } = sum(inp); const pf = computePortfolioFit(AppState.portfolio);
@@ -1924,7 +2114,8 @@ function renderSummaryStock() {
     <div class="stat-cell"><div class="stat-label">P/E (TTM)</div><div class="stat-value">${fmt.x(val.peTTM, 1, w.peTTM)}</div>${ok(inp.epsTTM) ? `<div class="stat-sub">EPS ${fmt.price(inp.epsTTM)} · ${esc(inp.epsBasis || '')}</div>` : ''}</div>
     <div class="stat-cell"><div class="stat-label">Dividend yield</div><div class="stat-value">${fmt.pct(val.dividendYield, 1, w.dividendYield)}</div></div>
   </div>
-  <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
+  ${earningsQualityPanel(inp)}
+  <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val) + (val.qualityFlag ? ' Reported earnings include one-off or non-cash items (see the warning above), so treat this verdict with extra caution.' : ''), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
 
   ${priceChartCard()}
   <div class="section-title">Intrinsic value vs. price</div>
@@ -2537,8 +2728,24 @@ document.querySelectorAll('[data-example]').forEach(btn => btn.addEventListener(
 
 // Delegated handlers (set once — not re-bound on every render).
 document.getElementById('tabContent').addEventListener('click', (e) => {
-  const b = e.target.closest('.range-btn'); if (!b) return;
-  AppState.chartRange = b.dataset.range; renderApp();
+  const b = e.target.closest('.range-btn');
+  if (b) { AppState.chartRange = b.dataset.range; renderApp(); return; }
+  // Switch the valuation between reported and core (ex non-operating) earnings.
+  const a = e.target.closest('[data-action="core-earnings"], [data-action="reported-earnings"]');
+  const s = AppState.stock, eq = s?.earningsQuality;
+  if (!a || !eq) return;
+  const src = AppState.fieldSource.stock, det = AppState.sourceDetail.stock;
+  if (a.dataset.action === 'core-earnings') {
+    s.epsTTM = eq.coreEPS; s.netIncome = eq.coreNetIncome; s.coreEarningsApplied = true;
+    src.epsTTM = src.netIncome = 'manual';
+    det.epsTTM = `Core earnings estimate (reported ${fmt.plain(eq.reportedEPS)} minus non-operating income after tax)`;
+    det.netIncome = 'Core earnings estimate (reported net income minus non-operating income after tax)';
+  } else {
+    s.epsTTM = eq.reportedEPS; s.netIncome = eq.reportedNetIncome; s.coreEarningsApplied = false;
+    src.epsTTM = src.netIncome = 'fetched';
+    det.epsTTM = 'Reported diluted EPS (SEC EDGAR)'; det.netIncome = 'Reported net income (SEC EDGAR)';
+  }
+  recompute();
 });
 let resizeTimer = null;
 window.addEventListener('resize', () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(() => { try { mountPriceChart(); } catch (e) { /* chart is optional */ } }, 150); });

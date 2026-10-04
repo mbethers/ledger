@@ -142,6 +142,21 @@ function renderWatchlist() {
 
 const sum = (inp) => { const v = computeValuation(inp); return { val: v, gc: computeGrahamChecklist(inp, v), bc: computeBuffettChecklist(inp, v), lc: computeLynchChecklist({ ...inp, ...AppState.lynch }, v) }; };
 
+// Shown when reported earnings lean on one-off, non-operating items or aren't backed by cash.
+function earningsQualityPanel(inp) {
+  const eq = inp.earningsQuality; if (!eq) return '';
+  const canSwitch = ok(eq.coreEPS) && eq.coreEPS > 0;
+  const action = !canSwitch ? '' : inp.coreEarningsApplied
+    ? `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">Valuing on <b>core earnings</b>: EPS ${fmt.price(eq.coreEPS)} (reported ${fmt.price(eq.reportedEPS)}). <button type="button" class="btn sm" data-action="reported-earnings">Switch back to reported earnings</button></p>`
+    : `<p style="margin-top:10px; font-size:13px; color:var(--ink-dim)">The verdict below uses reported EPS of ${fmt.price(eq.reportedEPS)}. <button type="button" class="btn sm primary" data-action="core-earnings">Value on core earnings instead (EPS ≈ ${fmt.price(eq.coreEPS)})</button></p>`;
+  return `<div class="card gap-panel" style="margin-bottom:18px">
+    <div class="card-head"><h3>Earnings quality warning</h3><span class="card-note">${inp.coreEarningsApplied ? 'core earnings in use' : 'confidence reduced by 15'}</span></div>
+    <div class="card-body"><ul class="gap-list">${eq.notes.map(n => `<li>${esc(n)}</li>`).join('')}</ul>${action}
+      <p class="note-box" style="margin-top:10px">Core earnings are an estimate: reported profit minus non-operating income, taxed at the company's effective rate${ok(eq.taxRate) ? ` (${(eq.taxRate * 100).toFixed(0)}%)` : ''}. Check the income statement in the latest 10-K/10-Q to see what the non-operating items are — some (like interest on a large cash pile) do recur.</p>
+    </div>
+  </div>`;
+}
+
 /* ---------------- SUMMARY : STOCK ---------------- */
 function renderSummaryStock() {
   const inp = AppState.stock; const { val, gc, bc, lc } = sum(inp); const pf = computePortfolioFit(AppState.portfolio);
@@ -156,7 +171,8 @@ function renderSummaryStock() {
     <div class="stat-cell"><div class="stat-label">P/E (TTM)</div><div class="stat-value">${fmt.x(val.peTTM, 1, w.peTTM)}</div>${ok(inp.epsTTM) ? `<div class="stat-sub">EPS ${fmt.price(inp.epsTTM)} · ${esc(inp.epsBasis || '')}</div>` : ''}</div>
     <div class="stat-cell"><div class="stat-label">Dividend yield</div><div class="stat-value">${fmt.pct(val.dividendYield, 1, w.dividendYield)}</div></div>
   </div>
-  <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
+  ${earningsQualityPanel(inp)}
+  <div class="card"><div class="card-body">${verdictStampBlock(val.verdict, val.confidence, computeSummaryBottomLine(val) + (val.qualityFlag ? ' Reported earnings include one-off or non-cash items (see the warning above), so treat this verdict with extra caution.' : ''), ` · ${val.methodsEvaluated}/5 valuation methods computable · ${val.filledCount}/${val.completenessFields.length} inputs present`)}</div></div>
 
   ${priceChartCard()}
   <div class="section-title">Intrinsic value vs. price</div>
