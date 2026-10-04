@@ -6,21 +6,178 @@
   "benchmark": "^SP500TR",
   "entryDate": "2026-01-02",
   "benchmarkEntry": 100,
-  "snapshot": { "sp500": 6000, "treasury10y": 0.042, "notes": "TEST FIXTURE — not real research" },
+  "snapshot": {
+    "sp500": 6000,
+    "treasury10y": 0.042,
+    "notes": "TEST FIXTURE — not real research"
+  },
   "positions": [
-    { "ticker": "AAA", "type": "stock", "weight": 0.15, "entryPrice": 10, "theme": "t1", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "BBB", "type": "stock", "weight": 0.10, "entryPrice": 20, "theme": "t1", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "CCC", "type": "adr", "weight": 0.10, "entryPrice": 30, "theme": "t2", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "DDD", "type": "etf", "weight": 0.10, "entryPrice": 40, "theme": "t2", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "EEE", "type": "bond-fund", "weight": 0.05, "entryPrice": 50, "theme": "t3", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "FFF", "type": "stock", "weight": 0.10, "entryPrice": 60, "theme": "t3", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "GGG", "type": "stock", "weight": 0.10, "entryPrice": 70, "theme": "t4", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "HHH", "type": "stock", "weight": 0.05, "entryPrice": 80, "theme": "t4", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "III", "type": "stock", "weight": 0.10, "entryPrice": 90, "theme": "t5", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } },
-    { "ticker": "JJJ", "type": "stock", "weight": 0.05, "entryPrice": 100, "theme": "t5", "sources": [], "thesis": { "pricedIn": "x", "consensus": "x", "variant": "x", "catalyst": "x", "killCriteria": "x" } }
+    {
+      "ticker": "AAA",
+      "type": "stock",
+      "weight": 0.15,
+      "entryPrice": 10,
+      "theme": "t1",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "BBB",
+      "type": "stock",
+      "weight": 0.1,
+      "entryPrice": 20,
+      "theme": "t1",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "CCC",
+      "type": "adr",
+      "weight": 0.1,
+      "entryPrice": 30,
+      "theme": "t2",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "DDD",
+      "type": "etf",
+      "weight": 0.1,
+      "entryPrice": 40,
+      "theme": "t2",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "EEE",
+      "type": "bond-fund",
+      "weight": 0.05,
+      "entryPrice": 50,
+      "theme": "t3",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "FFF",
+      "type": "stock",
+      "weight": 0.1,
+      "entryPrice": 60,
+      "theme": "t3",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "GGG",
+      "type": "stock",
+      "weight": 0.1,
+      "entryPrice": 70,
+      "theme": "t4",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "HHH",
+      "type": "stock",
+      "weight": 0.05,
+      "entryPrice": 80,
+      "theme": "t4",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "III",
+      "type": "stock",
+      "weight": 0.1,
+      "entryPrice": 90,
+      "theme": "t5",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    },
+    {
+      "ticker": "JJJ",
+      "type": "stock",
+      "weight": 0.05,
+      "entryPrice": 100,
+      "theme": "t5",
+      "sources": [],
+      "thesis": {
+        "pricedIn": "x",
+        "consensus": "x",
+        "variant": "x",
+        "catalyst": "x",
+        "killCriteria": "x"
+      }
+    }
   ],
-  "cashWeight": 0.10,
-  "researchLog": { "themes": [{ "name": "t1", "summary": "TEST" }], "rejected": [{ "ticker": "ZZZ", "reason": "TEST" }] },
+  "cashWeight": 0.1,
+  "researchLog": {
+    "themes": [
+      {
+        "name": "t1",
+        "summary": "TEST"
+      }
+    ],
+    "rejected": [
+      {
+        "ticker": "ZZZ",
+        "reason": "TEST"
+      }
+    ]
+  },
   "checkIns": [],
-  "fingerprint": ""
+  "fingerprint": "df520347122695a97d157f3be9cdba56c3d5e0b15f4b1bec48ee33a521be4999"
 }

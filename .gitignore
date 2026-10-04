@@ -6,3 +6,6 @@ node_modules/
 *.key
 facts/
 tools/.sec-cache/
+# Research portfolios are private: never commit them or the build that contains them
+research/
+ledger.private.html
