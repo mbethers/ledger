@@ -304,6 +304,26 @@ function computeValuation(inp) {
   return out;
 }
 
+// Reverse DCF: the 10-year owner-earnings growth rate at which Ledger's own DCF equals today's price,
+// holding the discount rate and terminal growth at their current inputs. Answers "what is priced in?".
+// Value per share rises monotonically with growth when owner earnings are positive, so bisection works.
+const IMPLIED_G_RANGE = [-0.5, 1.0];
+function impliedGrowth(inp) {
+  if (!ok(inp.price) || inp.price <= 0) return { g: null, why: 'needs a current price' };
+  const at = (g) => computeValuation({ ...inp, expectedGrowth: g });
+  const probe = at(0);
+  if (!ok(probe.ownerEarnings)) return { g: null, why: probe.why.ownerEarnings || 'owner earnings unavailable' };
+  if (probe.ownerEarnings <= 0) return { g: null, why: 'owner earnings are ≤ 0, so no growth rate makes the DCF match the price' };
+  if (!probe.dcf) return { g: null, why: probe.why.dcf || 'DCF not computable' };
+  if (!probe.dcf.sanityOk) return { g: null, why: 'discount rate must exceed terminal growth' };
+  const vps = (g) => at(g).dcf.valuePerShare;
+  let [lo, hi] = IMPLIED_G_RANGE;
+  if (vps(hi) < inp.price) return { g: null, why: `price exceeds the DCF value even at ${hi * 100}%/yr growth for 10 years` };
+  if (vps(lo) > inp.price) return { g: null, why: `price is below the DCF value even at ${lo * 100}%/yr growth (net cash alone may exceed it)` };
+  for (let i = 0; i < 80; i++) { const mid = (lo + hi) / 2; if (vps(mid) < inp.price) lo = mid; else hi = mid; }
+  return { g: (lo + hi) / 2, why: null };
+}
+
 // Checklist rows: PASS / FAIL / NO DATA / UNVERIFIED. A missing input is never a PASS.
 function checkRow(label, threshold, fmtKind, actual, test, o = {}) {
   let pass, note = o.note || '';
