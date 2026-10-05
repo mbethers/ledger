@@ -909,10 +909,11 @@ function scorePortfolio(p, series, asOf) {
   const bench = (series[p.benchmark] || []).filter(r => r.date >= p.entryDate && r.date <= endDate);
   const positions = p.positions.map(x => ({ ticker: x.ticker, type: x.type, weight: x.weight, theme: x.theme, entryPrice: x.entryPrice,
     ret: null, contribution: null, exited: !!exitOf(x.ticker), approx: false, why: null, status: latest[x.ticker]?.status ?? null }));
-  const base = { endDate, matured: asOf >= end, days: Math.round(dDaysISO(endDate, p.entryDate)), approx: false, positions };
+  const base = { endDate, matured: asOf >= end, days: Math.round(dDaysISO(endDate, p.entryDate)), approx: false, positions, avoid: null };
 
   const b0 = pointOnOrBefore(series[p.benchmark] || [], p.entryDate);
-  if (!b0 || !bench.length) return { ...base, total: null, why: `benchmark ${p.benchmark} prices unavailable`, curve: [] };
+  if (!b0 || !bench.length) return { ...base, total: null, why: `benchmark ${p.benchmark} prices unavailable`, curve: [], avoid: null };
+  base.avoid = scoreAvoid(p, series, endDate, b0, bench[bench.length - 1]);
 
   // Per-position value multiple on each benchmark date (1 = entry).
   const missing = [];
@@ -945,6 +946,25 @@ function scorePortfolio(p, series, asOf) {
   return { ...base, why: null, curve,
     total: { ret, benchRet, excess: ret - benchRet, maxDrawdown: maxDrawdown(curve.map(c => c[1])), benchMaxDrawdown: maxDrawdown(curve.map(c => c[2])),
       vol: annualVol(curve.map(c => c[1])), benchVol: annualVol(curve.map(c => c[2])), annRet: ann(ret), annBench: ann(benchRet) } };
+}
+
+// The avoid list: negative calls made at creation. Each name is measured from the entry date to the
+// score date against the benchmark; a call is a hit when the stock lagged. The basket is equal-weight
+// and, like the portfolio total, unavailable (never zero-filled) if any name lacks price history.
+function scoreAvoid(p, series, endDate, b0, bEnd) {
+  if (!Array.isArray(p.avoid) || !p.avoid.length) return null;
+  const benchRet = bEnd.adj / b0.adj - 1;
+  const rows = p.avoid.map(a => {
+    const r = series[a.ticker], start = r && pointOnOrBefore(r, p.entryDate), end = r && pointOnOrBefore(r, endDate);
+    const row = { ticker: a.ticker, type: a.type, reason: a.reason, entryPrice: a.entryPrice, ret: null, vsBench: null, hit: null, why: null };
+    if (!start || !end) { row.why = 'price history unavailable'; return row; }
+    row.ret = end.adj / start.adj - 1; row.vsBench = row.ret - benchRet; row.hit = row.vsBench < 0;
+    return row;
+  });
+  const scoredRows = rows.filter(r => r.ret != null), missing = rows.filter(r => r.ret == null).map(r => r.ticker);
+  return { rows, benchRet, scored: scoredRows.length, hits: scoredRows.filter(r => r.hit).length,
+    basketRet: missing.length ? null : scoredRows.reduce((s, r) => s + r.ret, 0) / scoredRows.length,
+    why: missing.length ? `price unavailable for ${missing.join(', ')}` : null };
 }
 
 function maxDrawdown(vals) {
@@ -1135,6 +1155,8 @@ const XBRL_TAGS = {
   interestExpense: ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense', 'InterestExpenseNet'],
   epsDiluted: ['EarningsPerShareDiluted', 'EarningsPerShareBasicAndDiluted', 'EarningsPerShareBasic'],
   dividendsPaid: ['PaymentsOfDividendsCommonStock', 'PaymentsOfDividends', 'PaymentsOfOrdinaryDividends'],
+  buybacks: ['PaymentsForRepurchaseOfCommonStock', 'PaymentsForRepurchaseOfEquity'],
+  stockIssued: ['ProceedsFromIssuanceOfCommonStock', 'ProceedsFromStockOptionsExercised'],
   cash: ['CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents', 'Cash'],
   shortTermInvestments: ['ShortTermInvestments', 'MarketableSecuritiesCurrent', 'AvailableForSaleSecuritiesDebtSecuritiesCurrent', 'AvailableForSaleSecuritiesCurrent', 'OtherShortTermInvestments'],
   totalCurrentAssets: ['AssetsCurrent'],
@@ -1169,6 +1191,8 @@ const IFRS_TAGS = {
   interestExpense: ['InterestExpense', 'FinanceCosts'],
   epsDiluted: ['DilutedEarningsLossPerShare', 'BasicEarningsLossPerShare'],
   dividendsPaid: ['DividendsPaidClassifiedAsFinancingActivities', 'DividendsPaid', 'DividendsPaidToEquityHoldersOfParentClassifiedAsFinancingActivities'],
+  buybacks: ['PaymentsToAcquireOrRedeemEntitysShares'],
+  stockIssued: ['ProceedsFromIssuingShares'],
   cash: ['CashAndCashEquivalents'],
   shortTermInvestments: ['CurrentFinancialAssetsAtAmortisedCost', 'CurrentFinancialAssetsAtFairValueThroughOtherComprehensiveIncome', 'ShorttermDepositsNotClassifiedAsCashEquivalents', 'CurrentInvestments'],
   totalCurrentAssets: ['CurrentAssets'],
@@ -1261,7 +1285,7 @@ function buildFundamentals(facts, todayISO) {
 
   // ---- flow (income / cash-flow) items: TTM where 10-Qs allow, else latest fiscal year ----
   const flows = {};
-  const flowFields = ['revenue', 'costOfRevenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid',
+  const flowFields = ['revenue', 'costOfRevenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid', 'buybacks', 'stockIssued',
     'operatingCashFlow', 'capex', 'sbc', 'pretaxIncome', 'incomeTaxExpense'];
   for (const f of flowFields) flows[f] = X.ttm(T[f]);
   flows.epsDiluted = X.ttm(T.epsDiluted, { unit: `${cur}/shares` });
@@ -1303,6 +1327,12 @@ function buildFundamentals(facts, todayISO) {
     setFlow('dividendsPaid', flows.dividendsPaid, 'dividends paid');
     if (refEnd && dDays(refEnd, flows.dividendsPaid.end) > 400) { v.dividendsPaid = 0; source.dividendsPaid = `SEC EDGAR · no dividend payments reported since ${flows.dividendsPaid.end} → 0`; }
   } else { v.dividendsPaid = 0; source.dividendsPaid = 'SEC EDGAR · no dividend-payment tags in filings → treated as 0 (verify)'; }
+  // Buybacks and share issuance (for shareholder yield). Like dividends, no tag almost always means none.
+  for (const [f, label] of [['buybacks', 'share repurchases'], ['stockIssued', 'share issuance']]) {
+    if (flows[f] && !(refEnd && dDays(refEnd, flows[f].end) > 400)) setFlow(f, flows[f], label);
+    else { v[f] = 0; source[f] = flows[f] ? `SEC EDGAR · none reported since ${flows[f].end} → 0` : `SEC EDGAR · no ${label} tags in filings → treated as 0 (verify)`; }
+  }
+  v.netBuybacks = v.buybacks - v.stockIssued; source.netBuybacks = 'derived: share repurchases − share issuance';
   setFlow('sbc', flows.sbc, 'share-based compensation');
 
   // ---- earnings quality: is reported profit really from the business, and is it backed by cash? ----
@@ -1583,7 +1613,7 @@ const Keys = {
 };
 const FOREIGN_MONEY_FIELDS = ['revenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid', 'cash', 'shortTermInvestments',
   'totalCurrentAssets', 'totalAssets', 'totalCurrentLiabilities', 'longTermDebt', 'totalDebt', 'totalLiabilities', 'goodwill', 'intangibles', 'totalEquity',
-  'operatingCashFlow', 'capex', 'sbc'];
+  'operatingCashFlow', 'capex', 'sbc', 'buybacks', 'stockIssued', 'netBuybacks'];
 const num = (x) => { const v = parseFloat(x); return Number.isFinite(v) ? v : null; };
 
 // Alpha Vantage: direct (it sends CORS headers), paced, and cached for a day because the free
@@ -2228,12 +2258,12 @@ async function scoreAllResearch() {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const jobs = []; const series = {};
-    for (const p of RESEARCH_DATA) for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) jobs.push([sym, p.entryDate]);
+    for (const p of RESEARCH_DATA) for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker), ...(p.avoid || []).map(x => x.ticker)]) jobs.push([sym, p.entryDate]);
     const queue = [...new Map(jobs.map(j => [j.join('|'), j])).values()];
     const worker = async () => { while (queue.length) { const [sym, from] = queue.shift(); series[`${sym}|${from}`] = await fetchAdjSeries(sym, from); } };
     await Promise.all([worker(), worker()]);
     for (const p of RESEARCH_DATA) {
-      const s = {}; for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) { const rows = series[`${sym}|${p.entryDate}`]; if (rows) s[sym] = rows; }
+      const s = {}; for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker), ...(p.avoid || []).map(x => x.ticker)]) { const rows = series[`${sym}|${p.entryDate}`]; if (rows) s[sym] = rows; }
       try { R.scores[p.id] = scorePortfolio(p, s, today); }
       catch (e) { R.scores[p.id] = { total: null, why: `scoring error: ${e.message}`, positions: [], curve: [] }; }
     }
@@ -2331,7 +2361,7 @@ function renderResearchDetail(p) {
       <h4 style="margin-top:12px">Rejected candidates</h4><ul>${(log.rejected || []).map(r => `<li><b>${esc(r.ticker)}</b> — ${esc(r.reason)}</li>`).join('') || '<li>none recorded</li>'}</ul>
       ${p.snapshot?.notes ? `<h4 style="margin-top:12px">Market at creation</h4><p>${esc(p.snapshot.notes)}</p>` : ''}
     </div></div>`;
-  return head + stats + chart + table + research;
+  return head + stats + chart + table + avoidCard(s, R.loading) + research;
 }
 
 // Two-line SVG chart: portfolio vs. S&P, both starting at $100,000.
@@ -2353,6 +2383,20 @@ function mountResearchChart() {
     <text x="${m.l}" y="${H - 6}" font-size="11" fill="var(--ink-faint)">${pts[0][0]}</text>
     <text x="${W - m.r}" y="${H - 6}" text-anchor="end" font-size="11" fill="var(--ink-faint)">${pts.at(-1)[0]} · <tspan fill="var(--brass)">portfolio</tspan> · dashed = S&amp;P</text>
   </svg>`;
+}
+
+// Negative calls recorded with the portfolio. A hit is a name that lagged the S&P over the same window.
+function avoidCard(s, loading) {
+  const a = s?.avoid; if (!a) return '';
+  const rows = a.rows.map(r => `<tr><td><b>${esc(r.ticker)}</b> <span class="rc-sub">${esc(r.type)}</span></td><td>${esc(r.reason)}</td>
+      <td class="num">${r.ret != null ? signedPct(r.ret) : unav(r.why || (loading ? '…' : 'n/a'))}</td>
+      <td class="num">${r.vsBench != null ? signedPct(r.vsBench) : ''}</td>
+      <td>${r.hit == null ? '' : r.hit ? '<span class="pill good">lagged ✓</span>' : '<span class="pill bad">beat S&amp;P ✗</span>'}</td></tr>`).join('');
+  return `<div class="card" style="margin-bottom:18px"><div class="card-head"><h3>Avoid list — did the negative calls work?</h3>
+      <span class="card-note">${a.scored ? `${a.hits} of ${a.scored} lagged the S&amp;P` : ''}${a.basketRet != null ? ` · basket ${(a.basketRet * 100).toFixed(1)}% vs S&amp;P ${(a.benchRet * 100).toFixed(1)}%` : ''}</span></div>
+    <div class="card-body" style="overflow-x:auto"><table class="data-table"><thead><tr><th>Name</th><th>Why we avoided it</th><th class="num">Return</th><th class="num">vs S&amp;P</th><th>Call</th></tr></thead>
+      <tbody>${rows}</tbody></table>${a.why ? `<p class="rc-sub" style="margin-top:8px">${esc(a.why)}</p>` : ''}
+      <p class="note-box" style="margin-top:10px">The portfolio is long-only, so negative calls are tracked here instead of shorted. Scored with dividends, from the entry date to the same end date as the portfolio.</p></div></div>`;
 }
 
 /* ============================================================================

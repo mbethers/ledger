@@ -28,7 +28,7 @@ const { execFileSync } = require('child_process');
   if (!b) throw new Error(`no ^SP500TR close on ${day} (not a trading day?)`);
 
   const missing = [];
-  for (const x of p.positions) {
+  for (const x of [...p.positions, ...(p.avoid || [])]) {
     const s = await lib.yahooSeries(x.ticker, from).catch(() => null);
     const r = s?.rows.find(r => r.date === day);
     if (!r) missing.push(x.ticker); else x.entryPrice = +r.close.toFixed(4);

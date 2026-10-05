@@ -88,6 +88,13 @@ function priceStats(rows) {
           Object.assign(row, { verdict: v.verdict, passing: v.methodsPassingMOS, pe: v.peTTM, pb: v.pb, impliedGrowth: ig.g, impliedWhy: ig.why,
             epsCAGR5: inp.epsCAGR5, revCAGR5: inp.revCAGR5, cyclical: !!inp.cyclical, qualityFlag: v.qualityFlag,
             periodEnd: inp.periodEnd ?? null, stale: isStale(inp.periodEnd) });
+          // Shareholder yield: cash returned to owners as a share of market cap (dividends + net buybacks).
+          const mc = v.marketCapV;
+          if (app.ok(mc) && mc > 0) {
+            row.divYield = app.ok(inp.dividendsPaid) ? inp.dividendsPaid / mc : null;
+            row.buybackYield = app.ok(inp.netBuybacks) ? inp.netBuybacks / mc : null;
+            row.shareholderYield = row.divYield != null && row.buybackYield != null ? row.divYield + row.buybackYield : null;
+          }
         }
       }
     } catch (e) { row.error = e.message; }
@@ -101,6 +108,8 @@ function priceStats(rows) {
   const stocks = out.filter(r => !r.error && r.kind !== 'bond-fund');
   show('Most methods passing margin of safety:', [...stocks].sort((a, b) => (b.passing - a.passing) || ((a.impliedGrowth ?? 9) - (b.impliedGrowth ?? 9))), r => `${r.passing}/5 pass · implied growth ${pct(r.impliedGrowth)} · P/E ${r.pe?.toFixed?.(1) ?? 'n/a'} · ${r.verdict}`);
   show('Furthest below 52-week high:', [...out.filter(r => !r.error)].sort((a, b) => a.offHigh - b.offHigh), r => `${pct(r.offHigh)} off high · 1y ${pct(r.ret1y)} · ${r.kind}`);
+  show('Highest shareholder yield (dividends + net buybacks ÷ market cap):', stocks.filter(r => app.ok(r.shareholderYield)).sort((a, b) => b.shareholderYield - a.shareholderYield),
+    r => `${pct(r.shareholderYield)} (dividends ${pct(r.divYield)} + net buybacks ${pct(r.buybackYield)}) · P/E ${r.pe?.toFixed?.(1) ?? 'n/a'}${r.qualityFlag ? ' · quality flag' : ''}`);
   show('Implied growth furthest below 5-yr revenue growth:', stocks.filter(r => app.ok(r.impliedGrowth) && app.ok(r.revCAGR5)).sort((a, b) => (a.impliedGrowth - a.revCAGR5) - (b.impliedGrowth - b.revCAGR5)), r => `implied ${pct(r.impliedGrowth)} vs 5-yr revenue ${pct(r.revCAGR5)}${r.cyclical ? ' · cyclical' : ''}`);
   console.log(`\n${out.length} screened (${out.filter(r => r.error).length} errors). Saved ${path.relative(ROOT, file)}`);
 })().catch(e => { console.error(e); process.exit(1); });

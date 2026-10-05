@@ -28,6 +28,8 @@ Anything that can't be fetched is shown as **Unavailable** with the reason. Miss
 
 Hypothetical $100k portfolios for 1–5 year horizons, researched in Claude Code (`.claude/skills/ledger-research/`) and scored in the app's **Research** view against the S&P 500 total-return index. They are research, not investment advice. Each portfolio is frozen when created (an integrity fingerprint catches edits) and scored buy-and-hold. Check-ins add notes but never change holdings.
 
+Each portfolio can also carry an **avoid list**: names the research expects to do worse than the market prices. The tool is long-only, so these aren't shorted; they're scored against the S&P so negative calls build a track record too. The screen reports **shareholder yield** (dividends + net buybacks ÷ market cap), read from SEC filings.
+
 Research data is private: `research/` and `ledger.private.html` are git-ignored, and the public `ledger.html` always ships with none.
 
 | Command | What it does |

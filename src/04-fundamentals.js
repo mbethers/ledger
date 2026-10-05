@@ -10,6 +10,8 @@ const XBRL_TAGS = {
   interestExpense: ['InterestExpense', 'InterestExpenseNonoperating', 'InterestExpenseDebt', 'InterestAndDebtExpense', 'InterestExpenseNet'],
   epsDiluted: ['EarningsPerShareDiluted', 'EarningsPerShareBasicAndDiluted', 'EarningsPerShareBasic'],
   dividendsPaid: ['PaymentsOfDividendsCommonStock', 'PaymentsOfDividends', 'PaymentsOfOrdinaryDividends'],
+  buybacks: ['PaymentsForRepurchaseOfCommonStock', 'PaymentsForRepurchaseOfEquity'],
+  stockIssued: ['ProceedsFromIssuanceOfCommonStock', 'ProceedsFromStockOptionsExercised'],
   cash: ['CashAndCashEquivalentsAtCarryingValue', 'CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents', 'Cash'],
   shortTermInvestments: ['ShortTermInvestments', 'MarketableSecuritiesCurrent', 'AvailableForSaleSecuritiesDebtSecuritiesCurrent', 'AvailableForSaleSecuritiesCurrent', 'OtherShortTermInvestments'],
   totalCurrentAssets: ['AssetsCurrent'],
@@ -44,6 +46,8 @@ const IFRS_TAGS = {
   interestExpense: ['InterestExpense', 'FinanceCosts'],
   epsDiluted: ['DilutedEarningsLossPerShare', 'BasicEarningsLossPerShare'],
   dividendsPaid: ['DividendsPaidClassifiedAsFinancingActivities', 'DividendsPaid', 'DividendsPaidToEquityHoldersOfParentClassifiedAsFinancingActivities'],
+  buybacks: ['PaymentsToAcquireOrRedeemEntitysShares'],
+  stockIssued: ['ProceedsFromIssuingShares'],
   cash: ['CashAndCashEquivalents'],
   shortTermInvestments: ['CurrentFinancialAssetsAtAmortisedCost', 'CurrentFinancialAssetsAtFairValueThroughOtherComprehensiveIncome', 'ShorttermDepositsNotClassifiedAsCashEquivalents', 'CurrentInvestments'],
   totalCurrentAssets: ['CurrentAssets'],
@@ -136,7 +140,7 @@ function buildFundamentals(facts, todayISO) {
 
   // ---- flow (income / cash-flow) items: TTM where 10-Qs allow, else latest fiscal year ----
   const flows = {};
-  const flowFields = ['revenue', 'costOfRevenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid',
+  const flowFields = ['revenue', 'costOfRevenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid', 'buybacks', 'stockIssued',
     'operatingCashFlow', 'capex', 'sbc', 'pretaxIncome', 'incomeTaxExpense'];
   for (const f of flowFields) flows[f] = X.ttm(T[f]);
   flows.epsDiluted = X.ttm(T.epsDiluted, { unit: `${cur}/shares` });
@@ -178,6 +182,12 @@ function buildFundamentals(facts, todayISO) {
     setFlow('dividendsPaid', flows.dividendsPaid, 'dividends paid');
     if (refEnd && dDays(refEnd, flows.dividendsPaid.end) > 400) { v.dividendsPaid = 0; source.dividendsPaid = `SEC EDGAR · no dividend payments reported since ${flows.dividendsPaid.end} → 0`; }
   } else { v.dividendsPaid = 0; source.dividendsPaid = 'SEC EDGAR · no dividend-payment tags in filings → treated as 0 (verify)'; }
+  // Buybacks and share issuance (for shareholder yield). Like dividends, no tag almost always means none.
+  for (const [f, label] of [['buybacks', 'share repurchases'], ['stockIssued', 'share issuance']]) {
+    if (flows[f] && !(refEnd && dDays(refEnd, flows[f].end) > 400)) setFlow(f, flows[f], label);
+    else { v[f] = 0; source[f] = flows[f] ? `SEC EDGAR · none reported since ${flows[f].end} → 0` : `SEC EDGAR · no ${label} tags in filings → treated as 0 (verify)`; }
+  }
+  v.netBuybacks = v.buybacks - v.stockIssued; source.netBuybacks = 'derived: share repurchases − share issuance';
   setFlow('sbc', flows.sbc, 'share-based compensation');
 
   // ---- earnings quality: is reported profit really from the business, and is it backed by cash? ----

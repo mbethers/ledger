@@ -16,7 +16,8 @@ Ask for the horizon (1–5 years) if not given. Then:
 1. **Snapshot.** Record today's date, S&P 500 level, 10-yr Treasury, sector year-to-date performance and sentiment (search the web). This becomes `snapshot`.
 2. **Candidates (about 40–60):**
    - *Trends:* identify 6–10 forces that matter over this horizon. 1 yr = near-term triggers (pricing, capacity dates, policy deadlines). 5 yr = structural shifts. For each, map first-, second- and third-order winners and losers. Favor bottlenecks (demand surging into inelastic supply) and businesses the market may be mis-classifying.
-   - *Screen:* `LEDGER_CONTACT=<user email> node tools/screen.js`, then read `research/screen-<date>.json` for cheap, disliked and beaten-down names. Rows marked stale (fundamentals > 15 months old, common for foreign filers) need manual valuation from current reports.
+   - *Dominoes:* for each force, look past the first-order winners and losers (usually priced fast) to effects that arrive slowly through accounting, regulation or demographics — e.g. mortality gains reaching life insurers' assumption updates, or a supplier whose bottleneck only shows in later quarters. Ask which feared victims the data actually contradicts.
+   - *Screen:* `LEDGER_CONTACT=<user email> node tools/screen.js`, then read `research/screen-<date>.json` for cheap, disliked and beaten-down names. Check `shareholderYield` (dividends + net buybacks ÷ market cap): over multi-year horizons it is a large share of total return, and a company buying back stock at depressed prices is acting on the same disagreement with the market. Rows marked stale (fundamentals > 15 months old, common for foreign filers) need manual valuation from current reports.
 3. **Priced-in gate,** for every candidate:
    - Ledger valuation + implied growth (from the screen, or open the ticker in the app).
    - **Consensus,** with evidence (analyst estimates, sentiment, reaction to recent news).
@@ -25,9 +26,10 @@ Ask for the horizon (1–5 years) if not given. Then:
    - **Kill criteria:** concrete and checkable.
    - Reject if there's no real disagreement with the market, or if implied growth already exceeds our view. Log every rejection with its reason in `researchLog.rejected`.
 4. **Argue the other side.** For each survivor, write the strongest case that the market is right. Drop any that it defeats (log it in rejected).
-5. **Construct.** 10–20 positions, each ≤ 15%, each `theme` ≤ 35% total, sectors ≤ 35% by judgment. Weight by conviction, reduced for risk. Bonds or cash only with a stated reason. Weights + `cashWeight` = 1.
-6. **Present the draft to the user and wait for approval** before recording.
-7. **Record.** Write the draft to `research/drafts/<YYYY-MM-DD>-<N>y.json` (all fields except `entryPrice`, `entryDate`, `benchmarkEntry`, `createdAt`, `checkIns`, `fingerprint`). Then run:
+5. **Avoid list.** Record the names you believe will do worse than the market prices — hidden losers of the same forces — as `avoid: [{ "ticker", "type", "reason" }]` in the draft (entry prices are filled at recording). The portfolio is long-only, so these are not shorted; they are scored against the S&P so negative calls get a track record too. A ticker can't be both held and avoided.
+6. **Construct.** 10–20 positions, each ≤ 15%, each `theme` ≤ 35% total, sectors ≤ 35% by judgment. Weight by conviction, reduced for risk. Bonds or cash only with a stated reason. Weights + `cashWeight` = 1.
+7. **Present the draft to the user and wait for approval** before recording.
+8. **Record.** Write the draft to `research/drafts/<YYYY-MM-DD>-<N>y.json` (all fields except `entryPrice`, `entryDate`, `benchmarkEntry`, `createdAt`, `checkIns`, `fingerprint`). Then run:
    ```bash
    node tools/record-portfolio.js research/drafts/<file>.json
    ```

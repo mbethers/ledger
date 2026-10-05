@@ -34,10 +34,11 @@ function scorePortfolio(p, series, asOf) {
   const bench = (series[p.benchmark] || []).filter(r => r.date >= p.entryDate && r.date <= endDate);
   const positions = p.positions.map(x => ({ ticker: x.ticker, type: x.type, weight: x.weight, theme: x.theme, entryPrice: x.entryPrice,
     ret: null, contribution: null, exited: !!exitOf(x.ticker), approx: false, why: null, status: latest[x.ticker]?.status ?? null }));
-  const base = { endDate, matured: asOf >= end, days: Math.round(dDaysISO(endDate, p.entryDate)), approx: false, positions };
+  const base = { endDate, matured: asOf >= end, days: Math.round(dDaysISO(endDate, p.entryDate)), approx: false, positions, avoid: null };
 
   const b0 = pointOnOrBefore(series[p.benchmark] || [], p.entryDate);
-  if (!b0 || !bench.length) return { ...base, total: null, why: `benchmark ${p.benchmark} prices unavailable`, curve: [] };
+  if (!b0 || !bench.length) return { ...base, total: null, why: `benchmark ${p.benchmark} prices unavailable`, curve: [], avoid: null };
+  base.avoid = scoreAvoid(p, series, endDate, b0, bench[bench.length - 1]);
 
   // Per-position value multiple on each benchmark date (1 = entry).
   const missing = [];
@@ -70,6 +71,25 @@ function scorePortfolio(p, series, asOf) {
   return { ...base, why: null, curve,
     total: { ret, benchRet, excess: ret - benchRet, maxDrawdown: maxDrawdown(curve.map(c => c[1])), benchMaxDrawdown: maxDrawdown(curve.map(c => c[2])),
       vol: annualVol(curve.map(c => c[1])), benchVol: annualVol(curve.map(c => c[2])), annRet: ann(ret), annBench: ann(benchRet) } };
+}
+
+// The avoid list: negative calls made at creation. Each name is measured from the entry date to the
+// score date against the benchmark; a call is a hit when the stock lagged. The basket is equal-weight
+// and, like the portfolio total, unavailable (never zero-filled) if any name lacks price history.
+function scoreAvoid(p, series, endDate, b0, bEnd) {
+  if (!Array.isArray(p.avoid) || !p.avoid.length) return null;
+  const benchRet = bEnd.adj / b0.adj - 1;
+  const rows = p.avoid.map(a => {
+    const r = series[a.ticker], start = r && pointOnOrBefore(r, p.entryDate), end = r && pointOnOrBefore(r, endDate);
+    const row = { ticker: a.ticker, type: a.type, reason: a.reason, entryPrice: a.entryPrice, ret: null, vsBench: null, hit: null, why: null };
+    if (!start || !end) { row.why = 'price history unavailable'; return row; }
+    row.ret = end.adj / start.adj - 1; row.vsBench = row.ret - benchRet; row.hit = row.vsBench < 0;
+    return row;
+  });
+  const scoredRows = rows.filter(r => r.ret != null), missing = rows.filter(r => r.ret == null).map(r => r.ticker);
+  return { rows, benchRet, scored: scoredRows.length, hits: scoredRows.filter(r => r.hit).length,
+    basketRet: missing.length ? null : scoredRows.reduce((s, r) => s + r.ret, 0) / scoredRows.length,
+    why: missing.length ? `price unavailable for ${missing.join(', ')}` : null };
 }
 
 function maxDrawdown(vals) {

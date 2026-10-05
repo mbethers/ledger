@@ -18,7 +18,8 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/;
 function fingerprint(p) {
   const pos = Array.isArray(p.positions) ? p.positions : [];
   const core = { id: p.id, entryDate: p.entryDate, horizonYears: p.horizonYears, benchmark: p.benchmark, benchmarkEntry: p.benchmarkEntry,
-    cashWeight: p.cashWeight, positions: pos.map(x => (x && typeof x === 'object' ? [x.ticker, x.type, x.weight, x.entryPrice, x.theme, x.thesis] : x)) };
+    cashWeight: p.cashWeight, positions: pos.map(x => (x && typeof x === 'object' ? [x.ticker, x.type, x.weight, x.entryPrice, x.theme, x.thesis] : x)),
+    avoid: (Array.isArray(p.avoid) ? p.avoid : []).map(a => (a && typeof a === 'object' ? [a.ticker, a.type, a.reason, a.entryPrice] : a)) };
   return crypto.createHash('sha256').update(JSON.stringify(core)).digest('hex');
 }
 
@@ -54,6 +55,23 @@ function validatePortfolio(p) {
   if (!(cash >= 0 && cash <= 1)) e.push('cashWeight must be 0–1');
   const sum = pos.reduce((s, x) => s + (x.weight || 0), 0) + (cash || 0);
   if (Math.abs(sum - 1) > 0.001) e.push(`weights + cash sum to ${sum.toFixed(4)}, must be 1`);
+  // Avoid list (optional): negative calls, frozen at creation like the positions.
+  if (p.avoid !== undefined) {
+    if (!Array.isArray(p.avoid)) e.push('avoid must be an array');
+    else {
+      const avoided = new Set();
+      for (const a of p.avoid) {
+        if (!a || typeof a !== 'object') { e.push('every avoid entry must be an object'); continue; }
+        const t = a.ticker || '?';
+        if (!/^[A-Z0-9.\-^]{1,12}$/.test(t)) e.push(`avoid ${t}: bad ticker`);
+        if (avoided.has(t)) e.push(`avoid ${t}: duplicate ticker`); avoided.add(t);
+        if (seen.has(t)) e.push(`${t} is both held and on the avoid list`);
+        if (!TYPES.has(a.type)) e.push(`avoid ${t}: type must be one of ${[...TYPES].join(', ')}`);
+        if (!str(a.reason)) e.push(`avoid ${t}: reason missing`);
+        if (!(a.entryPrice > 0)) e.push(`avoid ${t}: entryPrice must be > 0`);
+      }
+    }
+  }
   let prev = null;
   for (const ci of p.checkIns || []) {
     if (!ISO.test(ci.date || '')) { e.push('check-in date must be YYYY-MM-DD'); continue; }

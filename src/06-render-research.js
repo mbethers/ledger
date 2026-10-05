@@ -23,12 +23,12 @@ async function scoreAllResearch() {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const jobs = []; const series = {};
-    for (const p of RESEARCH_DATA) for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) jobs.push([sym, p.entryDate]);
+    for (const p of RESEARCH_DATA) for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker), ...(p.avoid || []).map(x => x.ticker)]) jobs.push([sym, p.entryDate]);
     const queue = [...new Map(jobs.map(j => [j.join('|'), j])).values()];
     const worker = async () => { while (queue.length) { const [sym, from] = queue.shift(); series[`${sym}|${from}`] = await fetchAdjSeries(sym, from); } };
     await Promise.all([worker(), worker()]);
     for (const p of RESEARCH_DATA) {
-      const s = {}; for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker)]) { const rows = series[`${sym}|${p.entryDate}`]; if (rows) s[sym] = rows; }
+      const s = {}; for (const sym of [p.benchmark, ...p.positions.map(x => x.ticker), ...(p.avoid || []).map(x => x.ticker)]) { const rows = series[`${sym}|${p.entryDate}`]; if (rows) s[sym] = rows; }
       try { R.scores[p.id] = scorePortfolio(p, s, today); }
       catch (e) { R.scores[p.id] = { total: null, why: `scoring error: ${e.message}`, positions: [], curve: [] }; }
     }
@@ -126,7 +126,7 @@ function renderResearchDetail(p) {
       <h4 style="margin-top:12px">Rejected candidates</h4><ul>${(log.rejected || []).map(r => `<li><b>${esc(r.ticker)}</b> — ${esc(r.reason)}</li>`).join('') || '<li>none recorded</li>'}</ul>
       ${p.snapshot?.notes ? `<h4 style="margin-top:12px">Market at creation</h4><p>${esc(p.snapshot.notes)}</p>` : ''}
     </div></div>`;
-  return head + stats + chart + table + research;
+  return head + stats + chart + table + avoidCard(s, R.loading) + research;
 }
 
 // Two-line SVG chart: portfolio vs. S&P, both starting at $100,000.
@@ -148,4 +148,18 @@ function mountResearchChart() {
     <text x="${m.l}" y="${H - 6}" font-size="11" fill="var(--ink-faint)">${pts[0][0]}</text>
     <text x="${W - m.r}" y="${H - 6}" text-anchor="end" font-size="11" fill="var(--ink-faint)">${pts.at(-1)[0]} · <tspan fill="var(--brass)">portfolio</tspan> · dashed = S&amp;P</text>
   </svg>`;
+}
+
+// Negative calls recorded with the portfolio. A hit is a name that lagged the S&P over the same window.
+function avoidCard(s, loading) {
+  const a = s?.avoid; if (!a) return '';
+  const rows = a.rows.map(r => `<tr><td><b>${esc(r.ticker)}</b> <span class="rc-sub">${esc(r.type)}</span></td><td>${esc(r.reason)}</td>
+      <td class="num">${r.ret != null ? signedPct(r.ret) : unav(r.why || (loading ? '…' : 'n/a'))}</td>
+      <td class="num">${r.vsBench != null ? signedPct(r.vsBench) : ''}</td>
+      <td>${r.hit == null ? '' : r.hit ? '<span class="pill good">lagged ✓</span>' : '<span class="pill bad">beat S&amp;P ✗</span>'}</td></tr>`).join('');
+  return `<div class="card" style="margin-bottom:18px"><div class="card-head"><h3>Avoid list — did the negative calls work?</h3>
+      <span class="card-note">${a.scored ? `${a.hits} of ${a.scored} lagged the S&amp;P` : ''}${a.basketRet != null ? ` · basket ${(a.basketRet * 100).toFixed(1)}% vs S&amp;P ${(a.benchRet * 100).toFixed(1)}%` : ''}</span></div>
+    <div class="card-body" style="overflow-x:auto"><table class="data-table"><thead><tr><th>Name</th><th>Why we avoided it</th><th class="num">Return</th><th class="num">vs S&amp;P</th><th>Call</th></tr></thead>
+      <tbody>${rows}</tbody></table>${a.why ? `<p class="rc-sub" style="margin-top:8px">${esc(a.why)}</p>` : ''}
+      <p class="note-box" style="margin-top:10px">The portfolio is long-only, so negative calls are tracked here instead of shorted. Scored with dividends, from the entry date to the same end date as the portfolio.</p></div></div>`;
 }

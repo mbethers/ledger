@@ -50,7 +50,7 @@ const Keys = {
 };
 const FOREIGN_MONEY_FIELDS = ['revenue', 'grossProfit', 'ebit', 'netIncome', 'da', 'interestExpense', 'dividendsPaid', 'cash', 'shortTermInvestments',
   'totalCurrentAssets', 'totalAssets', 'totalCurrentLiabilities', 'longTermDebt', 'totalDebt', 'totalLiabilities', 'goodwill', 'intangibles', 'totalEquity',
-  'operatingCashFlow', 'capex', 'sbc'];
+  'operatingCashFlow', 'capex', 'sbc', 'buybacks', 'stockIssued', 'netBuybacks'];
 const num = (x) => { const v = parseFloat(x); return Number.isFinite(v) ? v : null; };
 
 // Alpha Vantage: direct (it sends CORS headers), paced, and cached for a day because the free
